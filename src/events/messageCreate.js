@@ -7,6 +7,9 @@ export default {
         if (message.author.bot || !message.guild) return;
 
         const config = await getGuildConfig(message.guild.id, client);
+
+        if (config?.commandMode === 'slash') return;
+
         const prefix = config?.prefix || '!';
 
         if (!message.content.startsWith(prefix)) return;

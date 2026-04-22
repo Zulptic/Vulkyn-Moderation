@@ -3,7 +3,11 @@ import { logger } from '../utils/logger.js';
 export default {
     name: 'clientReady',
     once: true,
-    execute(client) {
+    async execute(client) {
         logger.info(`${client.user.tag} online — serving ${client.guilds.cache.size} guild(s)`);
+
+        for (const [guildId] of client.guilds.cache) {
+            await client.syncGuildCommands(guildId, client);
+        }
     },
 };

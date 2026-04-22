@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js';
 
-const CACHE_TTL = 300; // 5 minutes
+const CACHE_TTL = 300;
 
 export async function getGuildConfig(guildId, client) {
     const cacheKey = `guild:config:${guildId}`;

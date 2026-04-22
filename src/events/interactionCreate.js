@@ -1,9 +1,19 @@
 import { logger } from '../utils/logger.js';
+import { getGuildConfig } from '../services/guildConfig.js';
 
 export default {
     name: 'interactionCreate',
     async execute(interaction, client) {
         if (!interaction.isChatInputCommand()) return;
+
+        const config = await getGuildConfig(interaction.guild.id, client);
+
+        if (config?.commandMode === 'prefix') {
+            return interaction.reply({
+                content: 'Slash commands are disabled in this server. Use prefix commands instead.',
+                ephemeral: true,
+            });
+        }
 
         const command = client.slashCommands.get(interaction.commandName);
         if (!command) return;

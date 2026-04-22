@@ -3,6 +3,9 @@ import { pathToFileURL } from 'url';
 import path from 'path';
 import { REST, Routes } from 'discord.js';
 import { logger } from '../utils/logger.js';
+import { getGuildConfig } from '../services/guildConfig.js';
+
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 async function loadFromDir(dirPath) {
     const commands = [];
@@ -30,6 +33,40 @@ async function loadFromDir(dirPath) {
     return commands;
 }
 
+export async function syncGuildCommands(guildId, client) {
+    const config = await getGuildConfig(guildId, client);
+    const commandMode = config?.commandMode || 'both';
+
+    if (commandMode === 'prefix') {
+        try {
+            await rest.put(
+                Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, guildId),
+                { body: [] }
+            );
+            logger.info(`Cleared slash commands for guild ${guildId}`);
+        } catch (err) {
+            logger.error(`Failed to clear slash commands for guild ${guildId}:`, err);
+        }
+        return;
+    }
+
+    const disabledCommands = config?.disabledCommands || [];
+
+    const body = client.slashCommands
+        .filter((cmd) => cmd.data && !disabledCommands.includes(cmd.name))
+        .map((cmd) => cmd.data.toJSON());
+
+    try {
+        await rest.put(
+            Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, guildId),
+            { body }
+        );
+        logger.info(`Synced ${body.length} slash command(s) for guild ${guildId}`);
+    } catch (err) {
+        logger.error(`Failed to sync slash commands for guild ${guildId}:`, err);
+    }
+}
+
 export async function loadCommands(client) {
     const slashPath = path.resolve('src/commands/slash');
     const prefixPath = path.resolve('src/commands/prefix');
@@ -46,17 +83,12 @@ export async function loadCommands(client) {
         logger.info(`Loaded prefix command: ${cmd.name}`);
     }
 
-    const shardId = process.env.HOSTNAME?.match(/-(\d+)$/)?.[1] ?? process.env.SHARD_ID ?? '0';
-
-    if (shardId === '0' && slashCommands.length > 0) {
-        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-        const body = slashCommands.filter((cmd) => cmd.data).map((cmd) => cmd.data.toJSON());
-
-        try {
-            await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID), { body });
-            logger.info(`Registered ${body.length} global slash command(s)`);
-        } catch (err) {
-            logger.error('Failed to register slash commands:', err);
-        }
+    try {
+        await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID), { body: [] });
+        logger.info('Cleared global slash commands');
+    } catch (err) {
+        logger.error('Failed to clear global slash commands:', err);
     }
+
+    client.syncGuildCommands = syncGuildCommands;
 }

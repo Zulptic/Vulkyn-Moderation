@@ -1,6 +1,6 @@
 # Vulkyn Moderation
 
-An AI integrated moderation tool that can detect and respond to harmful content in real-time. Built around what we as developers wanted to see in a moderation bot. Offering high customizability, and ofcourse, top-notch moderation. Designed to scale across thousands of guilds using Kubernetes sharding and Redis communication for fast a fast and reliable backend.
+An AI integrated moderation tool that can detect and respond to harmful content in real-time. Built around what we as developers wanted to see in a moderation bot. Offering high customizability, and ofcourse, top-notch moderation. Designed to scale across thousands of guilds using Kubernetes sharding and Redis communication for a fast and reliable backend.
 
 ## Tech Stack
 

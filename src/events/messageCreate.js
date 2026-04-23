@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
+import { canUseCommand } from '../services/permissionService.js';
 
 export default {
     name: 'messageCreate',
@@ -19,6 +20,10 @@ export default {
 
         const command = client.prefixCommands.get(commandName);
         if (!command) return;
+
+        if (!await canUseCommand(message.member, command.name, client)) {
+            return message.reply('You do not have permission to use this command.');
+        }
 
         try {
             await command.execute(message, args, client);

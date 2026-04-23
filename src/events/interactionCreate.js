@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
+import { canUseCommand } from '../services/permissionService.js';
 
 export default {
     name: 'interactionCreate',
@@ -17,6 +18,13 @@ export default {
 
         const command = client.slashCommands.get(interaction.commandName);
         if (!command) return;
+
+        if (!await canUseCommand(interaction.member, command.name, client)) {
+            return interaction.reply({
+                content: 'You do not have permission to use this command.',
+                ephemeral: true,
+            });
+        }
 
         try {
             await command.execute(interaction, client);

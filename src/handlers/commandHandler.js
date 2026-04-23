@@ -11,15 +11,24 @@ async function loadFromDir(dirPath) {
     const commands = [];
 
     try {
-        const files = await readdir(dirPath);
-        const jsFiles = files.filter((f) => f.endsWith('.js'));
+        const entries = await readdir(dirPath, { withFileTypes: true });
 
-        for (const file of jsFiles) {
-            const filePath = path.join(dirPath, file);
-            const command = (await import(pathToFileURL(filePath).href)).default;
+        for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+
+            if (entry.isDirectory()) {
+                // Recursively load from subdirectories
+                const subCommands = await loadFromDir(fullPath);
+                commands.push(...subCommands);
+                continue;
+            }
+
+            if (!entry.name.endsWith('.js')) continue;
+
+            const command = (await import(pathToFileURL(fullPath).href)).default;
 
             if (!command?.name || !command?.execute) {
-                logger.warn(`Skipping invalid command file: ${file}`);
+                logger.warn(`Skipping invalid command file: ${entry.name}`);
                 continue;
             }
 
@@ -71,18 +80,21 @@ export async function loadCommands(client) {
     const slashPath = path.resolve('src/commands/slash');
     const prefixPath = path.resolve('src/commands/prefix');
 
+    // Load slash commands into memory
     const slashCommands = await loadFromDir(slashPath);
     for (const cmd of slashCommands) {
         client.slashCommands.set(cmd.name, cmd);
         logger.info(`Loaded slash command: ${cmd.name}`);
     }
 
+    // Load prefix commands into memory
     const prefixCommands = await loadFromDir(prefixPath);
     for (const cmd of prefixCommands) {
         client.prefixCommands.set(cmd.name, cmd);
         logger.info(`Loaded prefix command: ${cmd.name}`);
     }
 
+    // Clear global commands (we use guild-specific now)
     try {
         await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID), { body: [] });
         logger.info('Cleared global slash commands');
@@ -90,5 +102,6 @@ export async function loadCommands(client) {
         logger.error('Failed to clear global slash commands:', err);
     }
 
+    // Attach sync function to client for use in events
     client.syncGuildCommands = syncGuildCommands;
 }

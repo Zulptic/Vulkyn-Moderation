@@ -4,6 +4,17 @@ const DEFAULT_CONFIG = {
     commandMode: 'both',
     prefix: '!',
     disabledCommands: [],
+    permissions: {
+        manageBot: [],
+        commandRules: [],
+    },
+    modLog: {
+        channel: null,
+        dmOnWarn: true,
+        dmOnMute: true,
+        dmOnKick: true,
+        dmOnBan: true,
+    },
 };
 
 export default {
@@ -19,6 +30,7 @@ export default {
 
             logger.info(`Joined guild: ${guild.name} (${guild.id}) — config created`);
 
+            // Sync slash commands based on config
             await client.syncGuildCommands(guild.id, client);
         } catch (err) {
             logger.error(`Failed to create config for guild ${guild.id}:`, err);

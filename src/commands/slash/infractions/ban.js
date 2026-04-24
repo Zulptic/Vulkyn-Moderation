@@ -1,4 +1,4 @@
-import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
+import { SlashCommandBuilder, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
 import { createInfraction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 
@@ -29,61 +29,61 @@ function formatDuration(seconds) {
 
 export default {
     name: 'ban',
-    async execute(message, args, client) {
+    data: new SlashCommandBuilder()
+        .setName('ban')
+        .setDescription('Ban a user from the server')
+        .addUserOption(opt => opt.setName('user').setDescription('User to ban').setRequired(true))
+        .addStringOption(opt => opt.setName('reason').setDescription('Reason for the ban'))
+        .addStringOption(opt => opt.setName('duration').setDescription('Ban duration (e.g. 1h, 7d, 1w) — permanent if not set'))
+        .addStringOption(opt => opt.setName('purge').setDescription('Delete message history (e.g. 30m, 6h, 3d, 1w)')),
+    async execute(interaction, client) {
+        const target = interaction.options.getUser('user');
+        const reason = interaction.options.getString('reason') || 'No reason provided.';
+        const durationStr = interaction.options.getString('duration');
+        const purgeStr = interaction.options.getString('purge');
 
-        if (!args.length) {
-            return embedService.usage(message, 'ban <targetID> [duration] [purge:duration] <Reason>', client);
-        }
-
-        const target = message.mentions.users.first() || await message.client.users.fetch(args[0]).catch(() => null);
-        if (!target) {
-            return embedService.error(message, 'Please mention a user or provide a valid user ID.');
+        if (target.id === interaction.user.id) {
+            return embedService.error(interaction, 'You cannot ban yourself.');
         }
 
         if (target.bot) {
-            return embedService.error(message, 'You cannot ban a bot.');
+            return embedService.error(interaction, 'You cannot ban a bot.');
         }
 
-        if (target.id === message.author.id) {
-            return embedService.error(message, 'You cannot ban yourself.');
-        }
-
-        const member = await message.guild.members.fetch(target.id).catch(() => null);
+        const member = await interaction.guild.members.fetch(target.id).catch(() => null);
         if (member && !member.bannable) {
-            return embedService.error(message, 'I cannot ban this user. They may have a higher role than me.');
+            return embedService.error(interaction, 'I cannot ban this user. They may have a higher role than me.');
         }
 
-        let reasonArgs = args.slice(1);
         let duration = null;
-        let deleteMessageSeconds = 0;
-
-        if (reasonArgs[0] && DURATION_REGEX.test(reasonArgs[0]) && !reasonArgs[0].startsWith('purge:')) {
-            duration = parseDuration(reasonArgs[0]);
-            reasonArgs = reasonArgs.slice(1);
+        if (durationStr) {
+            duration = parseDuration(durationStr);
+            if (duration === null) {
+                return embedService.error(interaction, 'Invalid duration (e.g. `1h`, `7d`, `1w`).');
+            }
         }
 
-        if (reasonArgs[0] && reasonArgs[0].toLowerCase().startsWith('purge:')) {
-            const purgeValue = reasonArgs[0].split(':')[1];
-            const parsed = parsePurgeDuration(purgeValue);
+        let deleteMessageSeconds = 0;
+        if (purgeStr) {
+            const parsed = parsePurgeDuration(purgeStr);
             if (parsed === null) {
-                return embedService.error(message, 'Invalid purge duration. Max is 7 days (e.g. `purge:30m`, `purge:6h`, `purge:3d`, `purge:1w`).');
+                return embedService.error(interaction, 'Invalid purge duration. Max is 7 days (e.g. `30m`, `6h`, `3d`, `1w`).');
             }
             deleteMessageSeconds = parsed;
-            reasonArgs = reasonArgs.slice(1);
         }
 
-        const reason = reasonArgs.join(' ') || 'No reason provided';
+        await interaction.deferReply({ flags: 64 });
 
         const infraction = await createInfraction(client, {
-            guildId: message.guild.id,
+            guildId: interaction.guild.id,
             userId: target.id,
-            moderatorId: message.author.id,
+            moderatorId: interaction.user.id,
             type: 'ban',
             reason,
             duration,
         });
 
-        await message.guild.members.ban(target.id, {
+        await interaction.guild.members.ban(target.id, {
             reason,
             deleteMessageSeconds,
         });
@@ -113,14 +113,13 @@ export default {
                     new ButtonBuilder()
                         .setLabel('Web Panel')
                         .setStyle(ButtonStyle.Link)
-                        .setURL(`https://vulkyn.xyz/${message.guild.id}/infractions`)
+                        .setURL(`https://vulkyn.xyz/${interaction.guild.id}/infractions`)
                 )
             );
 
-        await message.reply({
+        await interaction.editReply({
             components: [container],
             flags: MessageFlags.IsComponentsV2,
-            allowedMentions: { repliedUser: false },
         });
     }
 }

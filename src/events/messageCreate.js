@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
 import { canUseCommand } from '../services/permissionService.js';
+import {embedService} from "../services/embedService.js";
 
 export default {
     name: 'messageCreate',
@@ -22,7 +23,7 @@ export default {
         if (!command) return;
 
         if (!await canUseCommand(message.member, command.name, client)) {
-            return message.reply('You do not have permission to use this command.');
+            return embedService.error(message, 'You do not have permissions to use this command!')
         }
 
         try {

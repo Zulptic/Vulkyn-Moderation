@@ -2,12 +2,23 @@ import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacin
 import { createInfraction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 
+const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
+
+function parseDuration(str) {
+    const match = str.match(DURATION_REGEX);
+    if (!match) return null;
+    const num = parseInt(match[1]);
+    const unit = match[2];
+    const multipliers = { s: 1, m: 60, h: 3600, d: 86400 };
+    return num * multipliers[unit];
+}
+
 export default {
-    name: 'warn',
+    name: 'timeout',
     async execute(message, args, client) {
 
         if (!args.length) {
-            return embedService.usage(message, 'warn <targetID> <Reason>', client);
+            return embedService.usage(message, 'timeout <targetID> <duration> <Reason>', client);
         }
 
         const target = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
@@ -16,33 +27,45 @@ export default {
         }
 
         if (target.user.bot) {
-            return embedService.error(message, 'You cannot warn a bot.');
+            return embedService.error(message, 'You cannot timeout a bot.');
         }
 
         if (target.id === message.author.id) {
-            return embedService.error(message, 'You cannot warn yourself.');
+            return embedService.error(message, 'You cannot timeout yourself.');
         }
 
-        const reason = args.slice(1).join(' ') || 'No reason provided';
+        if (!target.moderatable) {
+            return embedService.error(message, 'I cannot timeout this user. They may have a higher role than me.');
+        }
+
+        const duration = parseDuration(args[1] || '');
+        if (!duration) {
+            return embedService.error(message, 'Please provide a valid duration (e.g. `5m`, `1h`, `7d`).');
+        }
+
+        const reason = args.slice(2).join(' ') || 'No reason provided';
+
+        await target.timeout(duration * 1000, reason);
 
         const infraction = await createInfraction(client, {
             guildId: message.guild.id,
             userId: target.id,
             moderatorId: message.author.id,
-            type: 'warn',
+            type: 'timeout',
             reason,
+            duration,
         });
 
         const container = new ContainerBuilder()
             .setAccentColor(0x47bc29)
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`<:success_1:1496689024482414817><:success_2:1496689038726267041><:success_3:1496689049438654524> **|** Warned **<@${target.id}>** **|** Case #${infraction.case_number} `)
+                new TextDisplayBuilder().setContent(`<:success_1:1496689024482414817><:success_2:1496689038726267041><:success_3:1496689049438654524> **|** Timed out **<@${target.id}>** **|** Case #${infraction.case_number} `)
             )
             .addSeparatorComponents(
                 new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
             )
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**Reason:** ${reason}\n**Date:** <t:${Math.floor(Date.now() / 1000)}:f>`)
+                new TextDisplayBuilder().setContent(`**Reason:** ${reason}\n**Duration:** ${args[1]}\n**Date:** <t:${Math.floor(Date.now() / 1000)}:f>`)
             )
             .addSeparatorComponents(
                 new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)

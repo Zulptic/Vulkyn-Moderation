@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
 import { canUseCommand } from '../services/permissionService.js';
+import {embedService} from "../services/embedService.js";
 
 export default {
     name: 'interactionCreate',
@@ -10,20 +11,14 @@ export default {
         const config = await getGuildConfig(interaction.guild.id, client);
 
         if (config?.commandMode === 'prefix') {
-            return interaction.reply({
-                content: 'Slash commands are disabled in this server. Use prefix commands instead.',
-                ephemeral: true,
-            });
+            return embedService.error(interaction, 'Slash commands are disabled in this Discord.')
         }
 
         const command = client.slashCommands.get(interaction.commandName);
         if (!command) return;
 
         if (!await canUseCommand(interaction.member, command.name, client)) {
-            return interaction.reply({
-                content: 'You do not have permission to use this command.',
-                ephemeral: true,
-            });
+            return embedService.error(interaction, 'You do not have permissions to use this command!')
         }
 
         try {

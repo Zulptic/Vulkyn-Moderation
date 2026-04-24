@@ -76,6 +76,8 @@ function hasNativePermission(member, commandName) {
     const permMap = {
         warn: 'ModerateMembers',
         mute: 'ModerateMembers',
+        unmute: 'ModerateMembers',
+        timeout: 'ModerateMembers',
         kick: 'KickMembers',
         ban: 'BanMembers',
     };

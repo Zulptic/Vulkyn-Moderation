@@ -1,4 +1,6 @@
 import { logger } from '../utils/logger.js';
+import { startMuteExpiry } from '../services/muteExpiry.js';
+import {startBanExpiry} from "../services/banExpiry.js";
 
 export default {
     name: 'clientReady',
@@ -9,5 +11,8 @@ export default {
         for (const [guildId] of client.guilds.cache) {
             await client.syncGuildCommands(guildId, client);
         }
+
+        startMuteExpiry(client);
+        startBanExpiry(client);
     },
 };

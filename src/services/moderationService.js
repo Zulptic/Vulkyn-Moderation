@@ -1,19 +1,13 @@
-import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, MessageFlags } from 'discord.js';
+import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, SectionBuilder, MessageFlags } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
 
 const DM_KEYS = {
     warn: 'dmOnWarn',
     mute: 'dmOnMute',
+    timeout: 'dmOnTimeout',
     kick: 'dmOnKick',
     ban: 'dmOnBan',
-};
-
-const ACTION_COLORS = {
-    warn: 0xfac775,
-    mute: 0xef9f27,
-    kick: 0xf09595,
-    ban: 0xe24b4a,
 };
 
 /*
@@ -59,8 +53,8 @@ export async function createInfraction(client, {
     // Insert infraction
     const { rows } = await client.db.query(
         `INSERT INTO infractions (guild_id, case_number, user_id, moderator_id, type, reason, duration, expires_at, source, ai_result)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     RETURNING *`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         RETURNING *`,
         [guildId, caseNumber, userId, moderatorId, type, reason, duration, expiresAt, source, aiResult ? JSON.stringify(aiResult) : null]
     );
 
@@ -89,26 +83,43 @@ async function dmUser(client, guildId, userId, infraction) {
         const user = await client.users.fetch(userId).catch(() => null);
         if (!user || !guild) return;
 
+        const config = await getGuildConfig(guildId, client);
+
+        const preposition = infraction.type === 'kick' ? 'from' : 'in';
+
+        let detailsText = `**Reason:** ${infraction.reason}`;
+
+        if (infraction.duration && ['mute', 'timeout', 'ban'].includes(infraction.type)) {
+            detailsText += `\n**Duration:** ${formatDuration(infraction.duration)}`;
+        }
+
+        detailsText += `\n**Case:** #${infraction.case_number}`;
+
+        let footerText;
+        if (config?.modLog?.showModInDm && infraction.moderator_id) {
+            const moderator = (await client.users.fetch(infraction.moderator_id).catch(() => null))?.username ?? 'Unknown';
+            footerText = `-# **@${moderator}** — <t:${Math.floor(Date.now() / 1000)}:f>`;
+        } else {
+            footerText = `-# <t:${Math.floor(Date.now() / 1000)}:f>`;
+        }
+
         const container = new ContainerBuilder()
-            .setAccentColor(ACTION_COLORS[infraction.type] || 0x888780)
+            .setAccentColor(0xbc2b2a)
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`## You have been ${formatAction(infraction.type)} in ${guild.name}`)
+                new TextDisplayBuilder().setContent(`<:punishment_1:1497070437618684065><:punishment_2:1497070473010217061><:punishment_3:1497070518598238330> **|** You have been ${formatAction(infraction.type)} ${preposition} **${guild.name}**`)
             )
             .addSeparatorComponents(
                 new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
             )
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**Reason:** ${infraction.reason}`)
+                new TextDisplayBuilder().setContent(detailsText)
+            )
+            .addSeparatorComponents(
+                new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
             )
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**Case:** #${infraction.case_number}`)
+                new TextDisplayBuilder().setContent(footerText)
             );
-
-        if (infraction.duration) {
-            container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**Duration:** ${formatDuration(infraction.duration)}`)
-            );
-        }
 
         await user.send({
             components: [container],
@@ -128,42 +139,36 @@ async function postModLog(client, guildId, infraction) {
         const channel = client.channels.cache.get(config.modLog.channel);
         if (!channel) return;
 
+        const typeLabel = capitalize(infraction.type);
+        const punishedUser = await client.users.fetch(infraction.user_id).catch(() => null);
+
+        let detailsText = `<:punishment_1:1497070437618684065><:punishment_2:1497070473010217061><:punishment_3:1497070518598238330> **|** ${typeLabel} #${infraction.case_number}\n\n**User:** <@${infraction.user_id}> (${infraction.user_id})\n**Reason:** ${infraction.reason}`;
+
+        if (infraction.duration && ['mute', 'timeout', 'ban'].includes(infraction.type)) {
+            detailsText += `\n**Duration:** ${formatDuration(infraction.duration)}`;
+        }
+
         const moderator = infraction.moderator_id
-            ? `<@${infraction.moderator_id}>`
+            ? (await client.users.fetch(infraction.moderator_id).catch(() => null))?.username ?? 'Unknown'
             : 'Automated';
 
-        const container = new ContainerBuilder()
-            .setAccentColor(ACTION_COLORS[infraction.type] || 0x888780)
+        const section = new SectionBuilder()
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`## Case #${infraction.case_number} — ${capitalize(infraction.type)}`)
+                textDisplay => textDisplay.setContent(detailsText)
             )
+            .setThumbnailAccessory(
+                thumbnail => thumbnail.setURL(punishedUser?.displayAvatarURL() ?? 'https://cdn.discordapp.com/embed/avatars/0.png')
+            );
+
+        const container = new ContainerBuilder()
+            .setAccentColor(0xbc2b2a)
+            .addSectionComponents(section)
             .addSeparatorComponents(
                 new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
             )
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**User:** <@${infraction.user_id}>`)
-            )
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**Moderator:** ${moderator}`)
-            )
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**Reason:** ${infraction.reason}`)
+                new TextDisplayBuilder().setContent(`-# **@${moderator}** — <t:${Math.floor(Date.now() / 1000)}:f>`)
             );
-
-        if (infraction.duration) {
-            container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**Duration:** ${formatDuration(infraction.duration)}`)
-            );
-        }
-
-        if (infraction.source !== 'manual') {
-            container.addSeparatorComponents(
-                new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-            );
-            container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`-# Source: ${infraction.source}`)
-            );
-        }
 
         await channel.send({
             components: [container],
@@ -181,6 +186,7 @@ function formatAction(type) {
     const actions = {
         warn: 'warned',
         mute: 'muted',
+        timeout: 'timed out',
         kick: 'kicked',
         ban: 'banned',
     };

@@ -1,6 +1,16 @@
-import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, SectionBuilder, MessageFlags } from 'discord.js';
+import {
+    ContainerBuilder,
+    TextDisplayBuilder,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    SectionBuilder,
+    MessageFlags
+} from 'discord.js';
+
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
+
+const PUNISHMENT_TYPES = ['warn', 'mute', 'timeout', 'kick', 'ban'];
 
 const DM_KEYS = {
     warn: 'dmOnWarn',
@@ -11,7 +21,197 @@ const DM_KEYS = {
 };
 
 /*
- * Get the next case number for a guild
+ * MAIN ENTRY POINT
+ */
+export async function logModAction(client, {
+    guildId,
+    action,
+    moderatorId,
+    targetId = null,
+    reason = null,
+    duration = null,
+    metadata = {},
+}) {
+    try {
+        let infraction = null;
+
+        // 1. Create infraction if needed
+        if (PUNISHMENT_TYPES.includes(action)) {
+            infraction = await createInfraction(client, {
+                guildId,
+                userId: targetId,
+                moderatorId,
+                type: action,
+                reason,
+                duration,
+            });
+        }
+
+        // 2. Log DB action
+        const modAction = await logModerationAction(client, {
+            guildId,
+            moderatorId,
+            action,
+            targetId,
+            infractionId: infraction?.id || null,
+            reason,
+            metadata,
+        });
+
+        // 3. Send mod log
+        await postUnifiedModLog(client, {
+            guildId,
+            action,
+            moderatorId,
+            targetId,
+            reason,
+            duration,
+            infraction,
+        });
+
+        return { infraction, modAction };
+
+    } catch (err) {
+        logger.error('Failed to log mod action:', err);
+        return null;
+    }
+}
+
+/*
+ * Create infraction (NO MOD LOG HERE)
+ */
+async function createInfraction(client, {
+    guildId,
+    userId,
+    moderatorId,
+    type,
+    reason,
+    duration,
+}) {
+    const config = await getGuildConfig(guildId, client);
+
+    let expiresAt = null;
+    if (duration) {
+        expiresAt = new Date(Date.now() + duration * 1000).toISOString();
+    }
+
+    const caseNumber = await getNextCaseNumber(guildId, client.db);
+
+    const { rows } = await client.db.query(
+        `INSERT INTO infractions 
+        (guild_id, case_number, user_id, moderator_id, type, reason, duration, expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        RETURNING *`,
+        [guildId, caseNumber, userId, moderatorId, type, reason, duration, expiresAt]
+    );
+
+    const infraction = rows[0];
+
+    // DM still happens here
+    const dmKey = DM_KEYS[type];
+    if (dmKey && config?.modLog?.[dmKey]) {
+        await dmUser(client, guildId, userId, infraction);
+    }
+
+    return infraction;
+}
+
+/*
+ * DB logging
+ */
+export async function logModerationAction(client, data) {
+    try {
+        const { rows } = await client.db.query(
+            `INSERT INTO moderation_actions
+             (guild_id, moderator_id, action, target_id, infraction_id, reason, metadata)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+                 RETURNING *`,
+            [
+                data.guildId,
+                data.moderatorId,
+                data.action,
+                data.targetId,
+                data.infractionId,
+                data.reason,
+                JSON.stringify(data.metadata || {}),
+            ]
+        );
+
+        return rows[0];
+    } catch (err) {
+        logger.error('Failed to log moderation action:', err);
+        return null;
+    }
+}
+
+/*
+ * Unified mod log sender
+ */
+async function postUnifiedModLog(client, {
+    guildId,
+    action,
+    moderatorId,
+    targetId,
+    reason,
+    duration,
+    infraction,
+}) {
+    const config = await getGuildConfig(guildId, client);
+    if (!config?.modLog?.channel) return;
+
+    const channel = client.channels.cache.get(config.modLog.channel);
+    if (!channel) return;
+
+    const user = await client.users.fetch(targetId).catch(() => null);
+
+    const isReversal = ['unban', 'unmute', 'untimeout'].includes(action);
+    const color = isReversal ? 0x2b8a3e : 0xbc2b2a;
+
+    let title = capitalize(action);
+    if (infraction?.case_number) {
+        title += ` #${infraction.case_number}`;
+    }
+
+    let text =
+        `<:punishment_1:1497070437618684065><:punishment_2:1497070473010217061><:punishment_3:1497070518598238330> **|** ${title}\n\n` +
+        `**User:** <@${targetId}> (${targetId})`;
+
+    if (reason) text += `\n**Reason:** ${reason}`;
+
+    if (!isReversal && duration && ['mute','timeout','ban'].includes(action)) {
+        text += `\n**Duration:** ${formatDuration(duration)}`;
+    }
+
+    const moderator = moderatorId
+        ? (await client.users.fetch(moderatorId).catch(() => null))?.username ?? 'Unknown'
+        : 'Automated';
+
+    const section = new SectionBuilder()
+        .addTextDisplayComponents(td => td.setContent(text))
+        .setThumbnailAccessory(thumbnail =>
+            thumbnail.setURL(user?.displayAvatarURL() ?? 'https://cdn.discordapp.com/embed/avatars/0.png')
+        );
+
+    const container = new ContainerBuilder()
+        .setAccentColor(color)
+        .addSectionComponents(section)
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+                `-# **@${moderator}** — <t:${Math.floor(Date.now()/1000)}:f>`
+            )
+        );
+
+    await channel.send({
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+    });
+}
+
+/*
+ * Helpers
  */
 async function getNextCaseNumber(guildId, db) {
     const { rows } = await db.query(
@@ -21,104 +221,30 @@ async function getNextCaseNumber(guildId, db) {
     return rows[0].next;
 }
 
-/*
- * Create an infraction and handle the full punishment flow:
- * 1. Log infraction to database
- * 2. DM the user (if configured)
- * 3. Post to mod log channel (Components V2)
- *
- * Returns the created infraction object
- */
-export async function createInfraction(client, {
-    guildId,
-    userId,
-    moderatorId = null,
-    type,
-    reason = 'No reason provided',
-    duration = null,
-    source = 'manual',
-    aiResult = null,
-}) {
-    const config = await getGuildConfig(guildId, client);
-
-    // Calculate expiry for timed punishments
-    let expiresAt = null;
-    if (duration) {
-        expiresAt = new Date(Date.now() + duration * 1000).toISOString();
-    }
-
-    // Get next case number
-    const caseNumber = await getNextCaseNumber(guildId, client.db);
-
-    // Insert infraction
-    const { rows } = await client.db.query(
-        `INSERT INTO infractions (guild_id, case_number, user_id, moderator_id, type, reason, duration, expires_at, source, ai_result)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         RETURNING *`,
-        [guildId, caseNumber, userId, moderatorId, type, reason, duration, expiresAt, source, aiResult ? JSON.stringify(aiResult) : null]
-    );
-
-    const infraction = rows[0];
-
-    // DM the user if configured
-    const dmKey = DM_KEYS[type];
-    if (dmKey && config?.modLog?.[dmKey]) {
-        await dmUser(client, guildId, userId, infraction);
-    }
-
-    // Post to mod log channel
-    if (config?.modLog?.channel) {
-        await postModLog(client, guildId, infraction);
-    }
-
-    return infraction;
+function formatDuration(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d`;
+    return `${Math.floor(seconds / 604800)}w`;
 }
 
-/*
- * DM the user about their punishment using Components V2
- */
+function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
 async function dmUser(client, guildId, userId, infraction) {
     try {
         const guild = client.guilds.cache.get(guildId);
         const user = await client.users.fetch(userId).catch(() => null);
         if (!user || !guild) return;
 
-        const config = await getGuildConfig(guildId, client);
-
-        const preposition = infraction.type === 'kick' ? 'from' : 'in';
-
-        let detailsText = `**Reason:** ${infraction.reason}`;
-
-        if (infraction.duration && ['mute', 'timeout', 'ban'].includes(infraction.type)) {
-            detailsText += `\n**Duration:** ${formatDuration(infraction.duration)}`;
-        }
-
-        detailsText += `\n**Case:** #${infraction.case_number}`;
-
-        let footerText;
-        if (config?.modLog?.showModInDm && infraction.moderator_id) {
-            const moderator = (await client.users.fetch(infraction.moderator_id).catch(() => null))?.username ?? 'Unknown';
-            footerText = `-# **@${moderator}** — <t:${Math.floor(Date.now() / 1000)}:f>`;
-        } else {
-            footerText = `-# <t:${Math.floor(Date.now() / 1000)}:f>`;
-        }
-
         const container = new ContainerBuilder()
             .setAccentColor(0xbc2b2a)
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`<:punishment_1:1497070437618684065><:punishment_2:1497070473010217061><:punishment_3:1497070518598238330> **|** You have been ${formatAction(infraction.type)} ${preposition} **${guild.name}**`)
-            )
-            .addSeparatorComponents(
-                new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-            )
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(detailsText)
-            )
-            .addSeparatorComponents(
-                new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-            )
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(footerText)
+                new TextDisplayBuilder().setContent(
+                    `You have been ${infraction.type} in **${guild.name}**\n**Reason:** ${infraction.reason}`
+                )
             );
 
         await user.send({
@@ -126,80 +252,6 @@ async function dmUser(client, guildId, userId, infraction) {
             flags: MessageFlags.IsComponentsV2,
         }).catch(() => {});
     } catch (err) {
-        logger.warn(`Could not DM user ${userId}:`, err);
+        logger.warn(`DM failed:`, err);
     }
-}
-
-/*
- * Post infraction to the guild's mod log channel using Components V2
- */
-async function postModLog(client, guildId, infraction) {
-    try {
-        const config = await getGuildConfig(guildId, client);
-        const channel = client.channels.cache.get(config.modLog.channel);
-        if (!channel) return;
-
-        const typeLabel = capitalize(infraction.type);
-        const punishedUser = await client.users.fetch(infraction.user_id).catch(() => null);
-
-        let detailsText = `<:punishment_1:1497070437618684065><:punishment_2:1497070473010217061><:punishment_3:1497070518598238330> **|** ${typeLabel} #${infraction.case_number}\n\n**User:** <@${infraction.user_id}> (${infraction.user_id})\n**Reason:** ${infraction.reason}`;
-
-        if (infraction.duration && ['mute', 'timeout', 'ban'].includes(infraction.type)) {
-            detailsText += `\n**Duration:** ${formatDuration(infraction.duration)}`;
-        }
-
-        const moderator = infraction.moderator_id
-            ? (await client.users.fetch(infraction.moderator_id).catch(() => null))?.username ?? 'Unknown'
-            : 'Automated';
-
-        const section = new SectionBuilder()
-            .addTextDisplayComponents(
-                textDisplay => textDisplay.setContent(detailsText)
-            )
-            .setThumbnailAccessory(
-                thumbnail => thumbnail.setURL(punishedUser?.displayAvatarURL() ?? 'https://cdn.discordapp.com/embed/avatars/0.png')
-            );
-
-        const container = new ContainerBuilder()
-            .setAccentColor(0xbc2b2a)
-            .addSectionComponents(section)
-            .addSeparatorComponents(
-                new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
-            )
-            .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`-# **@${moderator}** — <t:${Math.floor(Date.now() / 1000)}:f>`)
-            );
-
-        await channel.send({
-            components: [container],
-            flags: MessageFlags.IsComponentsV2,
-        });
-    } catch (err) {
-        logger.warn(`Could not post to mod log in guild ${guildId}:`, err);
-    }
-}
-
-/*
- * Helpers
- */
-function formatAction(type) {
-    const actions = {
-        warn: 'warned',
-        mute: 'muted',
-        timeout: 'timed out',
-        kick: 'kicked',
-        ban: 'banned',
-    };
-    return actions[type] || type;
-}
-
-function formatDuration(seconds) {
-    if (seconds < 60) return `${seconds}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-    return `${Math.floor(seconds / 86400)}d`;
-}
-
-function capitalize(str) {
-    return str.charAt(0).toUpperCase() + str.slice(1);
 }

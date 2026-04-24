@@ -9,7 +9,7 @@ import {
     MessageFlags,
     SlashCommandBuilder
 } from "discord.js";
-import { createInfraction } from "../../../services/moderationService.js";
+import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 
 export default {
@@ -42,11 +42,11 @@ export default {
 
         await interaction.deferReply({ flags: 64 });
 
-        const infraction = await createInfraction(client, {
+        const { infraction } = await logModAction(client, {
             guildId: interaction.guild.id,
-            userId: target.id,
+            action: 'kick',
             moderatorId: interaction.user.id,
-            type: 'kick',
+            targetId: target.id,
             reason,
         });
 

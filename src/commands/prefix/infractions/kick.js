@@ -1,5 +1,5 @@
 import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
-import { createInfraction } from "../../../services/moderationService.js";
+import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 
 export default {
@@ -29,11 +29,11 @@ export default {
 
         const reason = args.slice(1).join(' ') || 'No reason provided.';
 
-        const infraction = await createInfraction(client, {
+        const { infraction } = await logModAction(client, {
             guildId: message.guild.id,
-            userId: target.id,
+            action: 'kick',
             moderatorId: message.author.id,
-            type: 'kick',
+            targetId: target.id,
             reason,
         });
 

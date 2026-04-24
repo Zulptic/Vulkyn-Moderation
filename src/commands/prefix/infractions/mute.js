@@ -1,17 +1,16 @@
 import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
-import { createInfraction } from "../../../services/moderationService.js";
+import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { getGuildConfig } from "../../../services/guildConfig.js";
 
-const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
+const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
 function parseDuration(str) {
-    if (str.toLowerCase() === 'perm') return null;
     const match = str.match(DURATION_REGEX);
-    if (!match) return undefined;
+    if (!match) return null;
     const num = parseInt(match[1]);
     const unit = match[2];
-    const multipliers = { s: 1, m: 60, h: 3600, d: 86400 };
+    const multipliers = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 };
     return num * multipliers[unit];
 }
 
@@ -20,7 +19,7 @@ export default {
     async execute(message, args, client) {
 
         if (!args.length) {
-            return embedService.usage(message, 'mute <targetID> <duration|perm> <Reason>', client);
+            return embedService.usage(message, 'mute <targetID> [duration] <Reason>', client);
         }
 
         const config = await getGuildConfig(message.guild.id, client);
@@ -51,30 +50,29 @@ export default {
             return embedService.error(message, 'This user is already muted.');
         }
 
-        if (!args[1]) {
-            return embedService.error(message, 'Please provide a duration (e.g. `5m`, `1h`, `7d`) or `perm`.');
+        let reasonArgs = args.slice(1);
+        let duration = null;
+
+        // Check for optional duration
+        if (reasonArgs[0] && DURATION_REGEX.test(reasonArgs[0])) {
+            duration = parseDuration(reasonArgs[0]);
+            reasonArgs = reasonArgs.slice(1);
         }
 
-        const duration = parseDuration(args[1]);
-        if (duration === undefined) {
-            return embedService.error(message, 'Please provide a valid duration (e.g. `5m`, `1h`, `7d`) or `perm`.');
-        }
-
-        const isPerm = args[1].toLowerCase() === 'perm';
-        const reason = args.slice(2).join(' ') || 'No reason provided';
+        const reason = reasonArgs.join(' ') || 'No reason provided';
 
         await target.roles.add(muteRole, reason);
 
-        const infraction = await createInfraction(client, {
+        const { infraction } = await logModAction(client, {
             guildId: message.guild.id,
-            userId: target.id,
+            action: 'mute',
             moderatorId: message.author.id,
-            type: 'mute',
+            targetId: target.id,
             reason,
-            duration: isPerm ? null : duration,
+            duration,
         });
 
-        const durationText = isPerm ? 'Permanent' : args[1];
+        const durationText = duration ? args[1] : 'Permanent';
 
         const container = new ContainerBuilder()
             .setAccentColor(0x47bc29)

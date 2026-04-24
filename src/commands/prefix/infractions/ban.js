@@ -1,5 +1,5 @@
 import { ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
-import { createInfraction } from "../../../services/moderationService.js";
+import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
@@ -35,7 +35,7 @@ export default {
             return embedService.usage(message, 'ban <targetID> [duration] [purge:duration] <Reason>', client);
         }
 
-        const target = message.mentions.users.first() || await message.client.users.fetch(args[0]).catch(() => null);
+        const target = message.mentions.users.first() || await client.users.fetch(args[0]).catch(() => null);
         if (!target) {
             return embedService.error(message, 'Please mention a user or provide a valid user ID.');
         }
@@ -74,13 +74,16 @@ export default {
 
         const reason = reasonArgs.join(' ') || 'No reason provided';
 
-        const infraction = await createInfraction(client, {
+        const { infraction } = await logModAction(client, {
             guildId: message.guild.id,
-            userId: target.id,
+            action: 'ban',
             moderatorId: message.author.id,
-            type: 'ban',
+            targetId: target.id,
             reason,
             duration,
+            metadata: {
+                deleteMessageSeconds,
+            },
         });
 
         await message.guild.members.ban(target.id, {

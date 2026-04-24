@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
-import { createInfraction } from "../../../services/moderationService.js";
+import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
@@ -47,15 +47,19 @@ export default {
             return embedService.error(interaction, 'Please provide a valid duration (e.g. `5m`, `1h`, `7d`).');
         }
 
+        if (duration > 2419200) {
+            return embedService.error(interaction, 'Timeout duration cannot exceed 28 days.');
+        }
+
         await interaction.deferReply({ flags: 64 });
 
         await target.timeout(duration * 1000, reason);
 
-        const infraction = await createInfraction(client, {
+        const { infraction } = await logModAction(client, {
             guildId: interaction.guild.id,
-            userId: target.id,
+            action: 'timeout',
             moderatorId: interaction.user.id,
-            type: 'timeout',
+            targetId: target.id,
             reason,
             duration,
         });

@@ -50,9 +50,11 @@ function build(type, options = {}) {
     if (title && thumbnail) {
         const section = new SectionBuilder()
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`**${title}**`)
+                textDisplay => textDisplay.setContent(`**${title}**`)
             )
-            .setThumbnail(new ThumbnailBuilder({ media: { url: thumbnail } }));
+            .setThumbnailAccessory(
+                thumb => thumb.setURL(thumbnail)
+            );
         container.addSectionComponents(section);
     } else if (title) {
         container.addTextDisplayComponents(
@@ -141,8 +143,6 @@ async function sendToChannel(channel, type, options = {}) {
         flags: MessageFlags.IsComponentsV2,
     });
 }
-
-
 
 async function sendError(target, reason) {
     const container = new ContainerBuilder()

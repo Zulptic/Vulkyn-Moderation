@@ -2,6 +2,11 @@ import { logger } from '../utils/logger.js';
 
 const CACHE_TTL = 300;
 
+const FALLBACK_CONFIG = {
+    commands: { prefixes: ['!'] },
+    logging: { enabled: false },
+};
+
 export async function getGuildConfig(guildId, client) {
     const cacheKey = `guild:config:${guildId}`;
 
@@ -18,14 +23,14 @@ export async function getGuildConfig(guildId, client) {
             [guildId]
         );
 
-        const config = rows[0]?.config || { prefix: '!' };
+        const config = rows[0]?.config || FALLBACK_CONFIG;
 
         await client.redis.set(cacheKey, JSON.stringify(config), 'EX', CACHE_TTL).catch(() => {});
 
         return config;
     } catch (err) {
         logger.error(`Failed to fetch config for guild ${guildId}:`, err);
-        return { prefix: '!' };
+        return FALLBACK_CONFIG;
     }
 }
 
@@ -33,8 +38,8 @@ export async function updateGuildConfig(guildId, config, client) {
     try {
         await client.db.query(
             `INSERT INTO guild_configs (guild_id, config)
-       VALUES ($1, $2)
-       ON CONFLICT (guild_id) DO UPDATE SET config = $2, updated_at = NOW()`,
+             VALUES ($1, $2)
+                 ON CONFLICT (guild_id) DO UPDATE SET config = $2, updated_at = NOW()`,
             [guildId, JSON.stringify(config)]
         );
 

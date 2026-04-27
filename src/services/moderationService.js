@@ -103,7 +103,7 @@ async function createInfraction(client, {
     });
 
     const dmKey = DM_KEYS[type];
-    if (dmKey && config?.modLog?.[dmKey]) {
+    if (dmKey && config?.logging?.[dmKey]) {
         await dmUser(client, guildId, userId, infraction);
     }
 
@@ -115,7 +115,6 @@ async function insertInfraction(db, params) {
     try {
         await dbClient.query('BEGIN');
 
-        // Advisory lock based on guild ID hash
         await dbClient.query(
             'SELECT pg_advisory_xact_lock(hashtext($1))',
             [params.guildId]
@@ -179,9 +178,27 @@ async function postUnifiedModLog(client, {
     metadata = {},
 }) {
     const config = await getGuildConfig(guildId, client);
-    if (!config?.modLog?.channel) return;
+    if (!config?.logging?.enabled) return;
 
-    const channel = client.channels.cache.get(config.modLog.channel);
+    // Map action to logging config key
+    const actionToLogKey = {
+        warn: 'warnAdd',
+        mute: 'muteAdd',
+        timeout: 'warnAdd', // timeouts log under moderation too
+        kick: 'kickAdd',
+        ban: 'banAdd',
+        unwarn: 'warnRemove',
+        unmute: 'muteRemove',
+        untimeout: 'warnRemove',
+        unban: 'banRemove',
+    };
+
+    const logKey = actionToLogKey[action];
+    const modLogging = config.logging.moderation || {};
+    const channelId = modLogging[logKey] || modLogging.categoryChannel;
+    if (!channelId) return;
+
+    const channel = client.channels.cache.get(channelId);
     if (!channel) return;
 
     const user = await client.users.fetch(targetId).catch(() => null);
@@ -268,7 +285,7 @@ async function dmUser(client, guildId, userId, infraction) {
         detailsText += `\n**Case:** #${infraction.case_number}`;
 
         let footerText;
-        if (config?.modLog?.showModInDm && infraction.moderator_id) {
+        if (config?.logging?.showModInDm && infraction.moderator_id) {
             const moderator = (await client.users.fetch(infraction.moderator_id).catch(() => null))?.username ?? 'Unknown';
             footerText = `-# **@${moderator}** — <t:${Math.floor(Date.now() / 1000)}:f>`;
         } else {
@@ -278,7 +295,7 @@ async function dmUser(client, guildId, userId, infraction) {
         const container = new ContainerBuilder()
             .setAccentColor(0xbc2b2a)
             .addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(`<:punishment_1:1497070437618684065><:punishment_2:1497070473010217061><:punishment_3:1497070518598238330> **|** You have been ${formatAction(infraction.type)} ${preposition} **${guild.name}**`)
+                new TextDisplayBuilder().setContent(`${EMOJIS.punish} **|** You have been ${formatAction(infraction.type)} ${preposition} **${guild.name}**`)
             )
             .addSeparatorComponents(
                 new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)

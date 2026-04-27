@@ -78,8 +78,10 @@ function hasNativePermission(member, commandName) {
         mute: 'ModerateMembers',
         unmute: 'ModerateMembers',
         timeout: 'ModerateMembers',
+        untimeout: 'ModerateMembers',
         kick: 'KickMembers',
         ban: 'BanMembers',
+        unban: 'BanMembers',
     };
 
     const required = permMap[commandName];

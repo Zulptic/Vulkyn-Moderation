@@ -17,7 +17,6 @@ async function loadFromDir(dirPath) {
             const fullPath = path.join(dirPath, entry.name);
 
             if (entry.isDirectory()) {
-                // Recursively load from subdirectories
                 const subCommands = await loadFromDir(fullPath);
                 commands.push(...subCommands);
                 continue;
@@ -44,25 +43,17 @@ async function loadFromDir(dirPath) {
 
 export async function syncGuildCommands(guildId, client) {
     const config = await getGuildConfig(guildId, client);
-    const commandMode = config?.commandMode || 'both';
+    const cmdConfig = config?.commands || {};
+    const commandSettings = cmdConfig.commandSettings || {};
 
-    if (commandMode === 'prefix') {
-        try {
-            await rest.put(
-                Routes.applicationGuildCommands(process.env.DISCORD_CLIENT_ID, guildId),
-                { body: [] }
-            );
-            logger.info(`Cleared slash commands for guild ${guildId}`);
-        } catch (err) {
-            logger.error(`Failed to clear slash commands for guild ${guildId}:`, err);
-        }
-        return;
-    }
-
-    const disabledCommands = config?.disabledCommands || [];
-
+    // Filter slash commands: must have data, be enabled, and have slashEnabled
     const body = client.slashCommands
-        .filter((cmd) => cmd.data && !disabledCommands.includes(cmd.name))
+        .filter((cmd) => {
+            if (!cmd.data) return false;
+            const settings = commandSettings[cmd.name];
+            if (!settings) return true; // no settings = allow by default
+            return settings.enabled !== false && settings.slashEnabled !== false;
+        })
         .map((cmd) => cmd.data.toJSON());
 
     try {
@@ -80,14 +71,12 @@ export async function loadCommands(client) {
     const slashPath = path.resolve('src/commands/slash');
     const prefixPath = path.resolve('src/commands/prefix');
 
-    // Load slash commands into memory
     const slashCommands = await loadFromDir(slashPath);
     for (const cmd of slashCommands) {
         client.slashCommands.set(cmd.name, cmd);
         logger.info(`Loaded slash command: ${cmd.name}`);
     }
 
-    // Load prefix commands into memory
     const prefixCommands = await loadFromDir(prefixPath);
     for (const cmd of prefixCommands) {
         client.prefixCommands.set(cmd.name, cmd);
@@ -102,6 +91,5 @@ export async function loadCommands(client) {
         logger.error('Failed to clear global slash commands:', err);
     }
 
-    // Attach sync function to client for use in events
     client.syncGuildCommands = syncGuildCommands;
 }

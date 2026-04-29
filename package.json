@@ -1,8 +1,17 @@
 {
+  "name": "vulkyn-moderation",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
   "dependencies": {
     "discord.js": "^14.26.3",
     "dotenv": "^17.4.2",
     "ioredis": "^5.10.1",
+    "node-emoji": "^2.2.0",
     "nodejs": "^0.0.0",
     "openai": "^6.34.0",
     "pg": "^8.20.0"

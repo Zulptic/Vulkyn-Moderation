@@ -4,6 +4,7 @@ import { canUseCommand } from '../services/permissionService.js';
 import { embedService } from '../services/embedService.js';
 
 const cooldowns = new Map();
+const LOADING_EMOJI = '<a:loading:1498963770175783032>'; // replace with your loading emoji ID
 
 export default {
     name: 'messageCreate',
@@ -39,7 +40,6 @@ export default {
         // Find command by name or alias
         let command = client.prefixCommands.get(commandInput);
         if (!command) {
-            // Check aliases
             for (const [, cmd] of client.prefixCommands) {
                 const settings = cmdConfig.commandSettings?.[cmd.name];
                 if (settings?.aliases?.includes(commandInput)) {
@@ -87,6 +87,14 @@ export default {
             setTimeout(() => cooldowns.delete(cooldownKey), settings.cooldown * 1000);
         }
 
+        // Add loading reaction
+        let loadingReaction = null;
+        try {
+            loadingReaction = await message.react(LOADING_EMOJI);
+        } catch {
+            // Bot lacks Add Reactions permission, skip silently
+        }
+
         try {
             await command.execute(message, args, client);
 
@@ -97,6 +105,11 @@ export default {
         } catch (err) {
             logger.error(`Prefix command error [${command.name}]:`, err);
             await message.reply('Something went wrong running that command.').catch(() => {});
+        } finally {
+            // Remove loading reaction (only the bot's own)
+            if (loadingReaction && !message.deleted) {
+                await loadingReaction.users.remove(client.user.id).catch(() => {});
+            }
         }
     },
 };

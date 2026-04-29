@@ -28,7 +28,8 @@ const EMOJI = {
     success: '<:success_1:1496689024482414817><:success_2:1496689038726267041><:success_3:1496689049438654524>',
     warning: '<:warning_1:1496696965071900784><:warning_2:1496696992686936075><:warning_3:1496697019178418376>',
     usage: '<:command_1:1497044370254200902><:command_2:1497044410683359312><:command_3:1497044450185056456>',
-    info: '<:information_1:1498073621652963441><:information_2:1498073635980578897><:information_3:1498073645430603806>'
+    info: '<:information_1:1498073621652963441><:information_2:1498073635980578897><:information_3:1498073645430603806>',
+    loading: '<a:loading:1498963770175783032>'
 };
 
 function formatUptime(ms) {
@@ -761,6 +762,207 @@ async function sendGuildInfo(target, guild) {
     return sendStandardized(target, container, false);
 }
 
+async function sendServerChannelInfo(target, guild) {
+    const channels = guild.channels.cache;
+
+    const counts = {
+        category: channels.filter(c => c.type === 4).size,
+        text: channels.filter(c => c.type === 0).size,
+        voice: channels.filter(c => c.type === 2).size,
+        stage: channels.filter(c => c.type === 13).size,
+        announcement: channels.filter(c => c.type === 5).size,
+        forum: channels.filter(c => c.type === 15).size,
+        media: channels.filter(c => c.type === 16).size,
+    };
+
+    let activeThreadCount = 0;
+    try {
+        const fetched = await guild.channels.fetchActiveThreads();
+        activeThreadCount = fetched.threads.size;
+    } catch {
+        // silently fallback to 0
+    }
+
+    const total = channels.size + activeThreadCount;
+
+    const fmt = (n) => n > 0 ? `\`${n}\`` : EMOJI.no;
+
+    const lines = [
+        `${EMOJI.info} **|** ${guild.name}'s channel information\n`,
+        `**Total:** ${fmt(total)}`,
+        `**Category channels:** ${fmt(counts.category)}`,
+        `**Text channels:** ${fmt(counts.text)}`,
+        `**Voice channels:** ${fmt(counts.voice)}`,
+        `**Stage channels:** ${fmt(counts.stage)}`,
+        `**Announcement channels:** ${fmt(counts.announcement)}`,
+        `**Forum channels:** ${fmt(counts.forum)}`,
+        `**Media channels:** ${fmt(counts.media)}`,
+        `**Active thread channels:** ${fmt(activeThreadCount)}`,
+    ];
+
+    const iconUrl = guild.iconURL({ extension: 'png', size: 256 })
+        ?? 'https://cdn.discordapp.com/embed/avatars/0.png';
+
+    const container = new ContainerBuilder()
+        .setAccentColor(COLORS.info)
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(
+                    td => td.setContent(lines.join('\n'))
+                )
+                .setThumbnailAccessory(
+                    thumb => thumb.setURL(iconUrl)
+                )
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`ID: \`${guild.id}\``)
+        );
+
+    return sendStandardized(target, container, false);
+}
+
+async function sendServerMemberCount(target, guild) {
+    await guild.fetch().catch(() => {});
+    await guild.members.fetch().catch(() => {});
+
+    const total = guild.memberCount;
+    const bots = guild.members.cache.filter(m => m.user.bot).size;
+    const humans = total - bots;
+
+    const fmt = (n) => n > 0 ? `\`${n.toLocaleString()}\`` : EMOJI.no;
+
+    const lines = [
+        `${EMOJI.info} **|** ${guild.name}'s member count\n`,
+        `Total: ${fmt(total)}`,
+        `Humans: ${fmt(humans)}`,
+        `Bots: ${fmt(bots)}`,
+    ];
+
+    const iconUrl = guild.iconURL({ extension: 'png', size: 256 })
+        ?? 'https://cdn.discordapp.com/embed/avatars/0.png';
+
+    const container = new ContainerBuilder()
+        .setAccentColor(COLORS.info)
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(
+                    td => td.setContent(lines.join('\n'))
+                )
+                .setThumbnailAccessory(
+                    thumb => thumb.setURL(iconUrl)
+                )
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`ID: \`${guild.id}\``)
+        );
+
+    return sendStandardized(target, container, false);
+}
+
+async function sendRoleInfo(target, role) {
+    const memberCount = role.members.size;
+    const position = role.position;
+    const colorHex = role.color === 0 ? 'Default' : `#${role.color.toString(16).padStart(6, '0').toUpperCase()}`;
+    const created = `<t:${Math.floor(role.createdTimestamp / 1000)}:R>`;
+
+    const fmt = (n) => n > 0 ? `\`${n.toLocaleString()}\`` : EMOJI.no;
+    const bool = (b) => b ? EMOJI.yes : EMOJI.no;
+
+    const isBoosterRole = role.tags?.premiumSubscriberRole ?? false;
+
+    const headerLines = [
+        `${EMOJI.info} **|** ${role.name}'s information\n`,
+        `**Members:** ${fmt(memberCount)}`,
+        `**Position:** \`${position}\``,
+        `**Color:** \`${colorHex}\``,
+        `**Created:** ${created}`,
+    ];
+
+    const flagLines = [
+        `**Hoisted:** ${bool(role.hoist)}`,
+        `**Mentionable:** ${bool(role.mentionable)}`,
+        `**Managed:** ${bool(role.managed)}`,
+        `**Booster Role:** ${bool(isBoosterRole)}`,
+    ];
+
+    const keyPermissions = [
+        ['Administrator', 'Administrator'],
+        ['ManageGuild', 'Manage Server'],
+        ['ManageRoles', 'Manage Roles'],
+        ['ManageChannels', 'Manage Channels'],
+        ['ManageMessages', 'Manage Messages'],
+        ['KickMembers', 'Kick Members'],
+        ['BanMembers', 'Ban Members'],
+        ['MentionEveryone', 'Mention Everyone'],
+    ];
+
+    const heldPerms = keyPermissions
+        .filter(([flag]) => role.permissions.has(flag))
+        .map(([, label]) => `\`${label}\``);
+
+    const permsLines = [];
+    if (heldPerms.length === 0) {
+        permsLines.push(`**Key Permissions:** ${EMOJI.no}`);
+    } else {
+        permsLines.push(`**Key Permissions:**`);
+        for (let i = 0; i < heldPerms.length; i += 2) {
+            const pair = heldPerms.slice(i, i + 2).join(', ');
+            permsLines.push(pair);
+        }
+    }
+
+    const accentColor = role.color === 0 ? null : role.color;
+
+    const container = new ContainerBuilder();
+    if (accentColor !== null) container.setAccentColor(accentColor);
+
+    const roleIconUrl = role.iconURL({ extension: 'png', size: 256 });
+
+    if (roleIconUrl) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(
+                    td => td.setContent(headerLines.join('\n'))
+                )
+                .setThumbnailAccessory(
+                    thumb => thumb.setURL(roleIconUrl)
+                )
+        );
+    } else {
+        container.addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(headerLines.join('\n'))
+        );
+    }
+
+    container
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(flagLines.join('\n'))
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(permsLines.join('\n'))
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`ID: \`${role.id}\``)
+        );
+
+    return sendStandardized(target, container, false);
+}
+
 export const embedService = {
     success: (target, reason) => sendSuccess(target, reason),
     error: (target, reason) => sendError(target, reason),
@@ -777,6 +979,9 @@ export const embedService = {
     serverBannerInfo: (target, guild) => sendServerBannerInfo(target, guild),
     serverIconInfo: (target, guild) => sendServerIconInfo(target, guild),
     guildInfo: (target, guild) => sendGuildInfo(target, guild),
+    serverChannelInfo: (target, guild) => sendServerChannelInfo(target, guild),
+    serverMemberCount: (target, guild) => sendServerMemberCount(target, guild),
+    roleInfo: (target, role) => sendRoleInfo(target, role),
     ping: (target, options = {}) => sendPing(target, options),
     send: (target, type, options = {}) => send(target, type, options),
     toChannel: (channel, type, options = {}) => sendToChannel(channel, type, options),

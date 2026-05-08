@@ -8,6 +8,10 @@ import {
     MediaGalleryBuilder,
     MediaGalleryItemBuilder,
     MessageFlags,
+    ButtonBuilder,
+    ActionRowBuilder,
+    ButtonStyle,
+    ComponentType,
 } from 'discord.js';
 
 const COLORS = {
@@ -47,16 +51,6 @@ function formatUptime(ms) {
     ].filter(Boolean).join(' ');
 }
 
-/*
- *   color       - Override color with a hex value
- *   title       - Bold heading text
- *   description - Body text (supports markdown)
- *   fields      - Array of { name, value } objects
- *   footer      - Small muted text at the bottom
- *   image       - URL for a large image
- *   thumbnail   - URL for a small thumbnail
- *   timestamp   - true for current time, or a Date object
- */
 function build(type, options = {}) {
     const {
         color,
@@ -963,6 +957,39 @@ async function sendRoleInfo(target, role) {
     return sendStandardized(target, container, false);
 }
 
+async function sendMemberRoleInfo(target, member) {
+    const roles = member.roles.cache
+        .filter(r => r.name !== '@everyone')
+        .sort((a, b) => b.position - a.position)
+        .map(r => `<@&${r.id}>`);
+
+    const roleCount = roles.length;
+    const topRole = member.roles.highest;
+
+    const lines = [
+        `${EMOJI.info} **|** @${member.user.username}'s roles\n`,
+        `**Top Role:** <@&${topRole.id}>`,
+        `**Total Roles:** \`${roleCount}\``,
+        `\n**Roles:** ${roleCount > 0 ? roles.join(', ') : 'None'}`
+    ];
+
+    const container = new ContainerBuilder()
+        .setAccentColor(topRole.color || COLORS.info)
+        .addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent(lines.join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(member.user.displayAvatarURL()))
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`User ID: \`${member.id}\``)
+        );
+
+    return sendStandardized(target, container, false);
+}
+
 export const embedService = {
     success: (target, reason) => sendSuccess(target, reason),
     error: (target, reason) => sendError(target, reason),
@@ -982,6 +1009,7 @@ export const embedService = {
     serverChannelInfo: (target, guild) => sendServerChannelInfo(target, guild),
     serverMemberCount: (target, guild) => sendServerMemberCount(target, guild),
     roleInfo: (target, role) => sendRoleInfo(target, role),
+    memberRoleInfo: (target, member) => sendMemberRoleInfo(target, member),
     ping: (target, options = {}) => sendPing(target, options),
     send: (target, type, options = {}) => send(target, type, options),
     toChannel: (channel, type, options = {}) => sendToChannel(channel, type, options),

@@ -9,6 +9,7 @@ import {
 
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
+import { addScore } from './accountStatusService.js';
 
 const PUNISHMENT_TYPES = ['warn', 'mute', 'timeout', 'kick', 'ban'];
 
@@ -33,7 +34,7 @@ export async function logModAction(client, {
     reason = null,
     duration = null,
     metadata = {},
-}) {
+}, options = {}) {
     try {
         let infraction = null;
 
@@ -46,6 +47,12 @@ export async function logModAction(client, {
                 reason,
                 duration,
             });
+
+            if (!options.skipAccountStatus && targetId) {
+                await addScore(client, guildId, targetId, action).catch(err =>
+                    logger.warn('Account status update failed:', err)
+                );
+            }
         }
 
         const modAction = await logModerationAction(client, {

@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { startMuteExpiry } from '../services/muteExpiry.js';
-import {startBanExpiry} from "../services/banExpiry.js";
+import { startBanExpiry } from '../services/banExpiry.js';
+import { startAccountStatusRefresh } from '../services/accountStatusService.js';
 
 export default {
     name: 'clientReady',
@@ -14,5 +15,6 @@ export default {
 
         startMuteExpiry(client);
         startBanExpiry(client);
+        startAccountStatusRefresh(client);
     },
 };

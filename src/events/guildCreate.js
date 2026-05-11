@@ -26,10 +26,21 @@ const DEFAULT_CONFIG = {
             mute: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
             unmute: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
             timeout: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
-            untimeout: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
             kick: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
             ban: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
-            unban: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            ping: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            info: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            avatarinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            bannerinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            channelinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            emojiinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            stickerinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            serverbannerinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            servericoninfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            serverinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            serverchannelinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            servermembercount: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
+            roleinfo: { enabled: true, slashEnabled: true, prefixEnabled: true, aliases: [], autoDelete: false, reply: true, cooldown: 0 },
         },
         errorMessages: {
             noPermissions: true,
@@ -78,10 +89,28 @@ const DEFAULT_CONFIG = {
         voice: { categoryChannel: null },
         webhooks: { categoryChannel: null },
         server: { categoryChannel: null },
-        moderation: { categoryChannel: null },
+        moderation: { categoryChannel: null, warnAdd: null, muteAdd: null, kickAdd: null, banAdd: null, warnRemove: null, muteRemove: null, banRemove: null },
     },
 
     muteRoleId: null,
+
+    accountStatus: {
+        enabled: false,
+        threshold: null,
+        weights: {
+            warn: null,
+            mute: null,
+            timeout: null,
+            kick: null,
+            ban: null,
+        },
+        thresholdAction: null,
+        notifyChannelId: null,
+        refresh: {
+            enabled: false,
+            cron: null,
+        },
+    },
 
     emojis: {
         success: '<:success_1:1496689024482414817><:success_2:1496689038726267041><:success_3:1496689049438654524>',
@@ -120,7 +149,7 @@ export default {
 
                 const muteRole = await guild.roles.create({
                     name: 'Server Mute',
-                    color: 0x818386,
+                    colors: { primaryColor: 0x818386 },
                     permissions: [],
                     reason: 'Vulkyn Moderation — Server Mute role',
                 });

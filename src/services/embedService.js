@@ -12,7 +12,9 @@ import {
     ActionRowBuilder,
     ButtonStyle,
     ComponentType,
+    AttachmentBuilder,
 } from 'discord.js';
+import { render as renderAccountStatus } from '../renders/accountStatusRenderer.js';
 
 const COLORS = {
     success: 0x97c459,
@@ -34,6 +36,16 @@ const EMOJI = {
     usage: '<:command_1:1497044370254200902><:command_2:1497044410683359312><:command_3:1497044450185056456>',
     info: '<:information_1:1498073621652963441><:information_2:1498073635980578897><:information_3:1498073645430603806>',
     loading: '<a:loading:1498963770175783032>'
+};
+
+const ACTION_LABELS = {
+    warn: 'Warned',
+    mute: 'Muted',
+    unmute: 'Unmuted',
+    timeout: 'Timed out',
+    kick: 'Kicked',
+    ban: 'Banned',
+    unban: 'Unbanned',
 };
 
 function formatUptime(ms) {
@@ -229,7 +241,7 @@ async function sendUsage(target, usage, client) {
     return sendStandardized(target, container, true);
 }
 
-async function sendStandardized(target, container, ephemeral) {
+async function sendStandardized(target, container, ephemeral, files = []) {
     const flags = ephemeral
         ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
         : MessageFlags.IsComponentsV2;
@@ -238,6 +250,7 @@ async function sendStandardized(target, container, ephemeral) {
         components: [container],
         flags,
         allowedMentions: { repliedUser: false },
+        ...(files.length && { files }),
     };
 
     if (target.isChatInputCommand?.()) {
@@ -990,6 +1003,59 @@ async function sendMemberRoleInfo(target, member) {
     return sendStandardized(target, container, false);
 }
 
+async function sendModActionSuccess(target, { action, targetId, caseNumber, guildId, reason, duration = null, purged = null }) {
+    const label = ACTION_LABELS[action] ?? action;
+    const headerText = `${EMOJI.success} **|** ${label} **<@${targetId}>** **|** Case #${caseNumber}`;
+
+    const detailLines = [`**Reason:** ${reason}`];
+    if (duration !== null) detailLines.push(`**Duration:** ${duration}`);
+    if (purged !== null) detailLines.push(`**Purged:** ${purged}`);
+    detailLines.push(`**Date:** <t:${Math.floor(Date.now() / 1000)}:f>`);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x47bc29)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Web Panel')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(`https://vulkyn.xyz/${guildId}/infractions`)
+            )
+        );
+
+    return sendStandardized(target, container, false);
+}
+
+async function sendAccountStatusInfo(target, { user, statusData, asConfig }) {
+    const buffer = await renderAccountStatus({
+        username: user.displayName ?? user.username,
+        avatarURL: user.displayAvatarURL({ extension: 'png', size: 256 }),
+        score: Number(statusData.score) || 0,
+        threshold: asConfig.threshold ?? null,
+        thresholdAction: asConfig.thresholdAction ?? null,
+        lastInfraction: statusData.last_infraction ?? null,
+    });
+
+    const attachment = new AttachmentBuilder(buffer, { name: 'account-status.png' });
+
+    const payload = {
+        files: [attachment],
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { repliedUser: false },
+    };
+
+    if (target.isChatInputCommand?.()) {
+        if (target.replied || target.deferred) return target.editReply(payload);
+        return target.reply(payload);
+    }
+
+    return target.reply(payload);
+}
+
 export const embedService = {
     success: (target, reason) => sendSuccess(target, reason),
     error: (target, reason) => sendError(target, reason),
@@ -1010,6 +1076,8 @@ export const embedService = {
     serverMemberCount: (target, guild) => sendServerMemberCount(target, guild),
     roleInfo: (target, role) => sendRoleInfo(target, role),
     memberRoleInfo: (target, member) => sendMemberRoleInfo(target, member),
+    modActionSuccess: (target, options) => sendModActionSuccess(target, options),
+    accountStatusInfo: (target, options) => sendAccountStatusInfo(target, options),
     ping: (target, options = {}) => sendPing(target, options),
     send: (target, type, options = {}) => send(target, type, options),
     toChannel: (channel, type, options = {}) => sendToChannel(channel, type, options),

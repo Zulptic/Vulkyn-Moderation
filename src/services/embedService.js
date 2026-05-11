@@ -44,6 +44,7 @@ const ACTION_LABELS = {
     unmute: 'Unmuted',
     timeout: 'Timed out',
     kick: 'Kicked',
+    softban: 'Softbanned',
     ban: 'Banned',
     unban: 'Unbanned',
 };
@@ -189,7 +190,7 @@ async function sendError(target, reason) {
 
 async function sendSuccess(target, reason) {
     const container = new ContainerBuilder()
-        .setAccentColor(0x97c459)
+        .setAccentColor(0x47bc29)
         .addTextDisplayComponents(
             new TextDisplayBuilder().setContent(`${EMOJI.success} **|** ${reason}`)
         )
@@ -1030,6 +1031,51 @@ async function sendModActionSuccess(target, { action, targetId, caseNumber, guil
     return sendStandardized(target, container, false);
 }
 
+async function sendMultiModActionSuccess(target, { action, actioned, failed, guildId, reason, duration = null }) {
+    const label = ACTION_LABELS[action] ?? action;
+    const headerText = `${EMOJI.success} **|** ${label} **${actioned.length}** user${actioned.length !== 1 ? 's' : ''}`;
+
+    const detailLines = [`**Reason:** ${reason}`];
+    if (duration !== null) detailLines.push(`**Duration:** ${duration}`);
+    detailLines.push(`**Date:** <t:${Math.floor(Date.now() / 1000)}:f>`);
+
+    const actionedLines = actioned.map(({ userId, caseNumber }) =>
+        `> <@${userId}> **|** Case #${caseNumber}`
+    ).join('\n');
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x47bc29)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `${EMOJI.yes} **Actioned (${actioned.length}):**\n${actionedLines}`
+        ));
+
+    if (failed.length) {
+        const failedLines = failed.map(({ id, reason: r }) => `> <@${id}> **|** ${r}`).join('\n');
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+                `${EMOJI.no} **Failed (${failed.length}):**\n${failedLines}`
+            ));
+    }
+
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Web Panel')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(`https://vulkyn.xyz/${guildId}/infractions`)
+            )
+        );
+
+    return sendStandardized(target, container, false);
+}
+
 async function sendAccountStatusInfo(target, { user, statusData, asConfig }) {
     const buffer = await renderAccountStatus({
         username: user.displayName ?? user.username,
@@ -1077,6 +1123,7 @@ export const embedService = {
     roleInfo: (target, role) => sendRoleInfo(target, role),
     memberRoleInfo: (target, member) => sendMemberRoleInfo(target, member),
     modActionSuccess: (target, options) => sendModActionSuccess(target, options),
+    multiModActionSuccess: (target, options) => sendMultiModActionSuccess(target, options),
     accountStatusInfo: (target, options) => sendAccountStatusInfo(target, options),
     ping: (target, options = {}) => sendPing(target, options),
     send: (target, type, options = {}) => send(target, type, options),

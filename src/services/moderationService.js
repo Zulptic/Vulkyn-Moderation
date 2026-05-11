@@ -11,7 +11,7 @@ import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
 import { addScore } from './accountStatusService.js';
 
-const PUNISHMENT_TYPES = ['warn', 'mute', 'timeout', 'kick', 'ban'];
+const PUNISHMENT_TYPES = ['warn', 'mute', 'timeout', 'kick', 'ban', 'softban'];
 
 const DM_KEYS = {
     warn: 'dmOnWarn',
@@ -193,6 +193,7 @@ async function postUnifiedModLog(client, {
         mute: 'muteAdd',
         timeout: 'warnAdd', // timeouts log under moderation too
         kick: 'kickAdd',
+        softban: 'kickAdd',
         ban: 'banAdd',
         unwarn: 'warnRemove',
         unmute: 'muteRemove',
@@ -332,6 +333,7 @@ function formatAction(type) {
         mute: 'muted',
         timeout: 'timed out',
         kick: 'kicked',
+        softban: 'softbanned',
         ban: 'banned',
     };
     return actions[type] || type;

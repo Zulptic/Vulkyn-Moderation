@@ -9,7 +9,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
 
-const SCORED_ACTIONS = new Set(['warn', 'mute', 'timeout', 'kick', 'ban']);
+const SCORED_ACTIONS = new Set(['warn', 'mute', 'timeout', 'kick', 'ban', 'softban']);
 
 const PUNISH_EMOJI = '<:punishment_1:1497070437618684065><:punishment_2:1497070473010217061><:punishment_3:1497070518598238330>';
 
@@ -209,6 +209,25 @@ export async function resetScore(client, guildId, userId) {
         `UPDATE account_status SET score = 0, reset_at = NOW()
          WHERE guild_id = $1 AND user_id = $2`,
         [guildId, userId]
+    );
+}
+
+export async function clearScore(client, guildId, userId) {
+    const result = await client.db.query(
+        `UPDATE account_status SET score = 0, last_infraction = NULL, reset_at = NOW()
+         WHERE guild_id = $1 AND user_id = $2`,
+        [guildId, userId]
+    );
+    return result.rowCount > 0;
+}
+
+export async function setScore(client, guildId, userId, score) {
+    await client.db.query(
+        `INSERT INTO account_status (guild_id, user_id, score)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (guild_id, user_id) DO UPDATE
+         SET score = $3`,
+        [guildId, userId, score]
     );
 }
 

@@ -156,8 +156,6 @@ function setupCollector(sentMessage, buildFn, totalPages, uniqueId, authorId) {
 
     collector.on('end', async () => {
         const container = buildFn(currentPage);
-
-        // Disable all buttons on expiry by rebuilding with all disabled
         const expiredRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`roleinfo_prev_${uniqueId}`)

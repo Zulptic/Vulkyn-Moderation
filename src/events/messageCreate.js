@@ -63,7 +63,7 @@ export default {
 
         // Check permissions
         if (!await canUseCommand(message.member, command.name, client)) {
-            if (cmdConfig.errorMessages?.noPermissions) {
+            if (cmdConfig.errorMessages?.noPermissions !== false) {
                 return embedService.error(message, 'You do not have permissions to use this command.');
             }
             return;

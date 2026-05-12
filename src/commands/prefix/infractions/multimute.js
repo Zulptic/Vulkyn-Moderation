@@ -27,10 +27,10 @@ function parseUserArgs(args) {
 export default {
     name: 'multimute',
     async execute(message, args, client) {
-        if (!args.length) return embedService.usage(message, 'multimute <id1,id2,...> [duration] [reason]  or  multimute <@user> <@user> [duration] [reason]', client);
+        if (!args.length) return embedService.usage(message, 'multimute <id1,id2,...> [duration] [reason] [proof:evidence]  or  multimute <@user> <@user> [duration] [reason] [proof:evidence]', client);
 
         const { ids, rest } = parseUserArgs(args);
-        if (!ids.length) return embedService.usage(message, 'multimute <id1,id2,...> [duration] [reason]  or  multimute <@user> <@user> [duration] [reason]', client);
+        if (!ids.length) return embedService.usage(message, 'multimute <id1,id2,...> [duration] [reason] [proof:evidence]  or  multimute <@user> <@user> [duration] [reason] [proof:evidence]', client);
 
         const config = await getGuildConfig(message.guild.id, client);
         const muteRoleId = config?.muteRoleId;
@@ -49,6 +49,12 @@ export default {
             reasonArgs = reasonArgs.slice(1);
         }
 
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
         const reason = reasonArgs.join(' ') || 'No reason provided';
         const actioned = [];
         const failed = [];
@@ -70,6 +76,7 @@ export default {
                 targetId: member.id,
                 reason,
                 duration,
+                proof,
             });
 
             actioned.push({ userId: member.id, caseNumber: infraction.case_number });
@@ -86,6 +93,7 @@ export default {
             guildId: message.guild.id,
             reason,
             duration: durationStr ?? 'Permanent',
+            proof,
         });
     },
 };

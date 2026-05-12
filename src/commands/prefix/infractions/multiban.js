@@ -17,12 +17,19 @@ function parseUserArgs(args) {
 export default {
     name: 'multiban',
     async execute(message, args, client) {
-        if (!args.length) return embedService.usage(message, 'multiban <id1,id2,...> [reason]  or  multiban <@user> <@user> [reason]', client);
+        if (!args.length) return embedService.usage(message, 'multiban <id1,id2,...> [reason] [proof:evidence]  or  multiban <@user> <@user> [reason] [proof:evidence]', client);
 
         const { ids, rest } = parseUserArgs(args);
-        if (!ids.length) return embedService.usage(message, 'multiban <id1,id2,...> [reason]  or  multiban <@user> <@user> [reason]', client);
+        if (!ids.length) return embedService.usage(message, 'multiban <id1,id2,...> [reason] [proof:evidence]  or  multiban <@user> <@user> [reason] [proof:evidence]', client);
 
-        const reason = rest.join(' ') || 'No reason provided';
+        let reasonArgs = rest;
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
+        const reason = reasonArgs.join(' ') || 'No reason provided';
         const actioned = [];
         const failed = [];
 
@@ -42,6 +49,7 @@ export default {
                 moderatorId: message.author.id,
                 targetId: user.id,
                 reason,
+                proof,
             });
 
             await message.guild.members.ban(id, { reason });
@@ -58,6 +66,7 @@ export default {
             failed,
             guildId: message.guild.id,
             reason,
+            proof,
         });
     },
 };

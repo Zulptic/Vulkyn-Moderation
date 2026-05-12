@@ -31,7 +31,7 @@ export default {
     async execute(message, args, client) {
 
         if (!args.length) {
-            return embedService.usage(message, 'ban <targetID> [duration] [purge:duration] <Reason>', client);
+            return embedService.usage(message, 'ban <targetID> [duration] [purge:duration] <Reason> [proof:evidence]', client);
         }
 
         const target = message.mentions.users.first() || await client.users.fetch(args[0]).catch(() => null);
@@ -71,6 +71,12 @@ export default {
             reasonArgs = reasonArgs.slice(1);
         }
 
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
         const reason = reasonArgs.join(' ') || 'No reason provided';
 
         const { infraction } = await logModAction(client, {
@@ -80,6 +86,7 @@ export default {
             targetId: target.id,
             reason,
             duration,
+            proof,
             metadata: {
                 deleteMessageSeconds,
             },
@@ -98,6 +105,7 @@ export default {
             reason,
             duration: duration ? formatDuration(duration) : 'Permanent',
             purged: deleteMessageSeconds > 0 ? `${formatDuration(deleteMessageSeconds)} of messages` : null,
+            proof,
         });
     }
 }

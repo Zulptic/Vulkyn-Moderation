@@ -13,10 +13,14 @@ export default {
         .addStringOption(opt =>
             opt.setName('reason').setDescription('Reason for the softban')
         )
+        .addStringOption(opt =>
+            opt.setName('proof').setDescription('Evidence for this action (link or text)')
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
     async execute(interaction, client) {
         const target = interaction.options.getUser('user');
         const reason = interaction.options.getString('reason') || 'No reason provided.';
+        const proof = interaction.options.getString('proof') || null;
 
         if (target.id === interaction.user.id) {
             return embedService.error(interaction, 'You cannot softban yourself.');
@@ -39,6 +43,7 @@ export default {
             moderatorId: interaction.user.id,
             targetId: target.id,
             reason,
+            proof,
         });
 
         await interaction.guild.members.ban(target.id, { reason, deleteMessageSeconds: 86400 });
@@ -50,6 +55,7 @@ export default {
             caseNumber: infraction.case_number,
             guildId: interaction.guild.id,
             reason,
+            proof,
         });
     },
 };

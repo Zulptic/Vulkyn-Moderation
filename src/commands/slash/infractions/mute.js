@@ -21,11 +21,13 @@ export default {
         .setDescription('Mute a user (Server Mute role)')
         .addUserOption(opt => opt.setName('user').setDescription('User to mute').setRequired(true))
         .addStringOption(opt => opt.setName('duration').setDescription('Duration (e.g. 5m, 1h, 7d) — permanent if not set'))
-        .addStringOption(opt => opt.setName('reason').setDescription('Reason for the mute')),
+        .addStringOption(opt => opt.setName('reason').setDescription('Reason for the mute'))
+        .addStringOption(opt => opt.setName('proof').setDescription('Evidence for this action (link or text)')),
     async execute(interaction, client) {
         const target = interaction.options.getMember('user');
         const durationStr = interaction.options.getString('duration');
         const reason = interaction.options.getString('reason') || 'No reason provided.';
+        const proof = interaction.options.getString('proof') || null;
 
         const config = await getGuildConfig(interaction.guild.id, client);
         const muteRoleId = config?.muteRoleId;
@@ -73,6 +75,7 @@ export default {
             targetId: target.id,
             reason,
             duration,
+            proof,
         });
 
         return embedService.modActionSuccess(interaction, {
@@ -82,6 +85,7 @@ export default {
             guildId: interaction.guild.id,
             reason,
             duration: duration ? durationStr : 'Permanent',
+            proof,
         });
     }
 }

@@ -4,7 +4,7 @@ import { embedService } from "../../../services/embedService.js";
 export default {
     name: 'warn',
     async execute(message, args, client) {
-        if (!args.length) return embedService.usage(message, 'warn <targetID> <Reason>', client);
+        if (!args.length) return embedService.usage(message, 'warn <targetID> <Reason> [proof:evidence]', client);
 
         const target =
             message.mentions.members.first() ||
@@ -12,9 +12,16 @@ export default {
 
         if (!target) return embedService.error(message, 'Please mention a user or provide a valid user ID.');
         if (target.user.bot) return embedService.error(message, 'You cannot warn a bot.');
-        if (target.id === message.author.id) return embedService.error(message, 'You cannot warn yourself.');
+        //if (target.id === message.author.id) return embedService.error(message, 'You cannot warn yourself.');
 
-        const reason = args.slice(1).join(' ') || 'No reason provided';
+        let reasonArgs = args.slice(1);
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
+        const reason = reasonArgs.join(' ') || 'No reason provided';
 
         const { infraction } = await logModAction(client, {
             guildId: message.guild.id,
@@ -22,6 +29,7 @@ export default {
             moderatorId: message.author.id,
             targetId: target.id,
             reason,
+            proof,
         });
 
         return embedService.modActionSuccess(message, {
@@ -30,6 +38,7 @@ export default {
             caseNumber: infraction.case_number,
             guildId: message.guild.id,
             reason,
+            proof,
         });
     },
 };

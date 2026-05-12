@@ -8,10 +8,12 @@ export default {
         .setName('warn')
         .setDescription('Warn a user')
         .addUserOption(opt => opt.setName('user').setDescription('User to warn').setRequired(true))
-        .addStringOption(opt => opt.setName('reason').setDescription('Reason for the warning')),
+        .addStringOption(opt => opt.setName('reason').setDescription('Reason for the warning'))
+        .addStringOption(opt => opt.setName('proof').setDescription('Evidence for this action (link or text)')),
     async execute(interaction, client) {
         const target = interaction.options.getUser('user');
         const reason = interaction.options.getString('reason') || 'No reason provided.';
+        const proof = interaction.options.getString('proof') || null;
 
         if (target.id === interaction.user.id) {
             return embedService.error(interaction, 'You cannot warn yourself.');
@@ -29,6 +31,7 @@ export default {
             moderatorId: interaction.user.id,
             targetId: target.id,
             reason,
+            proof,
         });
 
         return embedService.modActionSuccess(interaction, {
@@ -37,6 +40,7 @@ export default {
             caseNumber: infraction.case_number,
             guildId: interaction.guild.id,
             reason,
+            proof,
         });
     }
 }

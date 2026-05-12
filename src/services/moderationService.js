@@ -33,6 +33,7 @@ export async function logModAction(client, {
     targetId = null,
     reason = null,
     duration = null,
+    proof = null,
     metadata = {},
 }, options = {}) {
     try {
@@ -46,6 +47,7 @@ export async function logModAction(client, {
                 type: action,
                 reason,
                 duration,
+                proof,
             });
 
             if (!options.skipAccountStatus && targetId) {
@@ -72,6 +74,7 @@ export async function logModAction(client, {
             targetId,
             reason,
             duration,
+            proof,
             infraction,
             metadata,
         });
@@ -91,6 +94,7 @@ async function createInfraction(client, {
     type,
     reason,
     duration,
+    proof,
 }) {
     const config = await getGuildConfig(guildId, client);
 
@@ -107,6 +111,7 @@ async function createInfraction(client, {
         reason,
         duration,
         expiresAt,
+        proof,
     });
 
     const dmKey = DM_KEYS[type];
@@ -133,10 +138,10 @@ async function insertInfraction(db, params) {
         );
 
         const { rows } = await dbClient.query(
-            `INSERT INTO infractions (guild_id, case_number, user_id, moderator_id, type, reason, duration, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `INSERT INTO infractions (guild_id, case_number, user_id, moderator_id, type, reason, duration, expires_at, proof)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                  RETURNING *`,
-            [params.guildId, next, params.userId, params.moderatorId, params.type, params.reason, params.duration, params.expiresAt]
+            [params.guildId, next, params.userId, params.moderatorId, params.type, params.reason, params.duration, params.expiresAt, params.proof ?? null]
         );
 
         await dbClient.query('COMMIT');
@@ -181,6 +186,7 @@ async function postUnifiedModLog(client, {
     targetId,
     reason,
     duration,
+    proof,
     infraction,
     metadata = {},
 }) {
@@ -234,6 +240,8 @@ async function postUnifiedModLog(client, {
     if (!isReversal && duration && ['mute', 'timeout', 'ban'].includes(action)) {
         text += `\n**Duration:** ${formatDuration(duration)}`;
     }
+
+    if (proof) text += `\n**Proof:** ${proof}`;
 
     const moderator = moderatorId
         ? (await client.users.fetch(moderatorId).catch(() => null))?.username ?? 'Unknown'

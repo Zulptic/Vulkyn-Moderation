@@ -30,11 +30,15 @@ export default {
         .addStringOption(opt =>
             opt.setName('reason').setDescription('Reason for the mutes')
         )
+        .addStringOption(opt =>
+            opt.setName('proof').setDescription('Evidence for this action (link or text)')
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
     async execute(interaction, client) {
         const ids = extractIds(interaction.options.getString('users'));
         const durationStr = interaction.options.getString('duration');
         const reason = interaction.options.getString('reason') || 'No reason provided.';
+        const proof = interaction.options.getString('proof') || null;
 
         if (!ids.length) return embedService.error(interaction, 'Please provide at least one valid user ID or mention.');
 
@@ -70,6 +74,7 @@ export default {
                 targetId: member.id,
                 reason,
                 duration,
+                proof,
             });
 
             actioned.push({ userId: member.id, caseNumber: infraction.case_number });
@@ -86,6 +91,7 @@ export default {
             guildId: interaction.guild.id,
             reason,
             duration: durationStr ?? 'Permanent',
+            proof,
         });
     },
 };

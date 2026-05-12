@@ -26,17 +26,24 @@ function parseUserArgs(args) {
 export default {
     name: 'multitimeout',
     async execute(message, args, client) {
-        if (args.length < 2) return embedService.usage(message, 'multitimeout <id1,id2,...> <duration> [reason]  or  multitimeout <@user> <@user> <duration> [reason]', client);
+        if (args.length < 2) return embedService.usage(message, 'multitimeout <id1,id2,...> <duration> [reason] [proof:evidence]  or  multitimeout <@user> <@user> <duration> [reason] [proof:evidence]', client);
 
         const { ids, rest } = parseUserArgs(args);
-        if (!ids.length || !rest.length) return embedService.usage(message, 'multitimeout <id1,id2,...> <duration> [reason]  or  multitimeout <@user> <@user> <duration> [reason]', client);
+        if (!ids.length || !rest.length) return embedService.usage(message, 'multitimeout <id1,id2,...> <duration> [reason] [proof:evidence]  or  multitimeout <@user> <@user> <duration> [reason] [proof:evidence]', client);
 
         const durationStr = rest[0];
         const duration = parseDuration(durationStr);
         if (!duration) return embedService.error(message, 'Invalid duration format (e.g. `5m`, `1h`, `7d`).');
         if (duration > 2419200) return embedService.error(message, 'Timeout duration cannot exceed 28 days.');
 
-        const reason = rest.slice(1).join(' ') || 'No reason provided';
+        let reasonArgs = rest.slice(1);
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
+        const reason = reasonArgs.join(' ') || 'No reason provided';
         const actioned = [];
         const failed = [];
 
@@ -57,6 +64,7 @@ export default {
                 targetId: member.id,
                 reason,
                 duration,
+                proof,
             });
 
             actioned.push({ userId: member.id, caseNumber: infraction.case_number });
@@ -73,6 +81,7 @@ export default {
             guildId: message.guild.id,
             reason,
             duration: durationStr,
+            proof,
         });
     },
 };

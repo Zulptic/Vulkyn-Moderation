@@ -35,12 +35,14 @@ export default {
         .addUserOption(opt => opt.setName('user').setDescription('User to ban').setRequired(true))
         .addStringOption(opt => opt.setName('reason').setDescription('Reason for the ban'))
         .addStringOption(opt => opt.setName('duration').setDescription('Ban duration (e.g. 1h, 7d, 1w) — permanent if not set'))
-        .addStringOption(opt => opt.setName('purge').setDescription('Delete message history (e.g. 30m, 6h, 3d, 1w)')),
+        .addStringOption(opt => opt.setName('purge').setDescription('Delete message history (e.g. 30m, 6h, 3d, 1w)'))
+        .addStringOption(opt => opt.setName('proof').setDescription('Evidence for this action (link or text)')),
     async execute(interaction, client) {
         const target = interaction.options.getUser('user');
         const reason = interaction.options.getString('reason') || 'No reason provided.';
         const durationStr = interaction.options.getString('duration');
         const purgeStr = interaction.options.getString('purge');
+        const proof = interaction.options.getString('proof') || null;
 
         if (target.id === interaction.user.id) {
             return embedService.error(interaction, 'You cannot ban yourself.');
@@ -81,6 +83,7 @@ export default {
             targetId: target.id,
             reason,
             duration,
+            proof,
             metadata: {
                 deleteMessageSeconds,
             },
@@ -99,6 +102,7 @@ export default {
             reason,
             duration: duration ? formatDuration(duration) : 'Permanent',
             purged: deleteMessageSeconds > 0 ? `${formatDuration(deleteMessageSeconds)} of messages` : null,
+            proof,
         });
     }
 }

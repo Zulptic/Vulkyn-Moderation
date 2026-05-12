@@ -4,7 +4,7 @@ import { logModAction } from '../../../services/moderationService.js';
 export default {
     name: 'softban',
     async execute(message, args, client) {
-        if (!args.length) return embedService.usage(message, 'softban <targetID> [reason]', client);
+        if (!args.length) return embedService.usage(message, 'softban <targetID> [reason] [proof:evidence]', client);
 
         const target = message.mentions.users.first() || await client.users.fetch(args[0]).catch(() => null);
         if (!target) return embedService.error(message, 'Please mention a user or provide a valid user ID.');
@@ -16,7 +16,14 @@ export default {
             return embedService.error(message, 'I cannot softban this user. They may have a higher role than me.');
         }
 
-        const reason = args.slice(1).join(' ') || 'No reason provided';
+        let reasonArgs = args.slice(1);
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
+        const reason = reasonArgs.join(' ') || 'No reason provided';
 
         const { infraction } = await logModAction(client, {
             guildId: message.guild.id,
@@ -24,6 +31,7 @@ export default {
             moderatorId: message.author.id,
             targetId: target.id,
             reason,
+            proof,
         });
 
         await message.guild.members.ban(target.id, { reason, deleteMessageSeconds: 86400 });
@@ -35,6 +43,7 @@ export default {
             caseNumber: infraction.case_number,
             guildId: message.guild.id,
             reason,
+            proof,
         });
     },
 };

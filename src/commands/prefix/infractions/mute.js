@@ -18,7 +18,7 @@ export default {
     async execute(message, args, client) {
 
         if (!args.length) {
-            return embedService.usage(message, 'mute <targetID> [duration] <Reason>', client);
+            return embedService.usage(message, 'mute <targetID> [duration] <Reason> [proof:evidence]', client);
         }
 
         const config = await getGuildConfig(message.guild.id, client);
@@ -58,6 +58,12 @@ export default {
             reasonArgs = reasonArgs.slice(1);
         }
 
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
         const reason = reasonArgs.join(' ') || 'No reason provided';
 
         await target.roles.add(muteRole, reason);
@@ -69,6 +75,7 @@ export default {
             targetId: target.id,
             reason,
             duration,
+            proof,
         });
 
         return embedService.modActionSuccess(message, {
@@ -78,6 +85,7 @@ export default {
             guildId: message.guild.id,
             reason,
             duration: duration ? args[1] : 'Permanent',
+            proof,
         });
     },
 }

@@ -17,10 +17,14 @@ export default {
         .addStringOption(opt =>
             opt.setName('reason').setDescription('Reason for the kicks')
         )
+        .addStringOption(opt =>
+            opt.setName('proof').setDescription('Evidence for this action (link or text)')
+        )
         .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
     async execute(interaction, client) {
         const ids = extractIds(interaction.options.getString('users'));
         const reason = interaction.options.getString('reason') || 'No reason provided.';
+        const proof = interaction.options.getString('proof') || null;
 
         if (!ids.length) return embedService.error(interaction, 'Please provide at least one valid user ID or mention.');
 
@@ -43,6 +47,7 @@ export default {
                 moderatorId: interaction.user.id,
                 targetId: member.id,
                 reason,
+                proof,
             });
 
             await member.kick(reason);
@@ -59,6 +64,7 @@ export default {
             failed,
             guildId: interaction.guild.id,
             reason,
+            proof,
         });
     },
 };

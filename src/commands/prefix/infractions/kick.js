@@ -4,7 +4,7 @@ import { embedService } from "../../../services/embedService.js";
 export default {
     name: 'kick',
     async execute(message, args, client) {
-        if (!args.length) return embedService.usage(message, 'kick <targetID> <Reason>', client);
+        if (!args.length) return embedService.usage(message, 'kick <targetID> <Reason> [proof:evidence]', client);
 
         const target = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
         if (!target) return embedService.error(message, 'Please mention a user or provide a valid user ID.');
@@ -12,7 +12,14 @@ export default {
         if (target.id === message.author.id) return embedService.error(message, 'You cannot kick yourself.');
         if (!target.kickable) return embedService.error(message, 'I cannot kick this user. They may have a higher role than mine.');
 
-        const reason = args.slice(1).join(' ') || 'No reason provided.';
+        let reasonArgs = args.slice(1);
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
+        const reason = reasonArgs.join(' ') || 'No reason provided.';
 
         const { infraction } = await logModAction(client, {
             guildId: message.guild.id,
@@ -20,6 +27,7 @@ export default {
             moderatorId: message.author.id,
             targetId: target.id,
             reason,
+            proof,
         });
 
         await target.kick(reason);
@@ -30,6 +38,7 @@ export default {
             caseNumber: infraction.case_number,
             guildId: message.guild.id,
             reason,
+            proof,
         });
     },
 }

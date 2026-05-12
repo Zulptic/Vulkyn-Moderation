@@ -17,7 +17,7 @@ export default {
     async execute(message, args, client) {
 
         if (!args.length) {
-            return embedService.usage(message, 'timeout <targetID> <duration> <Reason>', client);
+            return embedService.usage(message, 'timeout <targetID> <duration> <Reason> [proof:evidence]', client);
         }
 
         const target = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
@@ -46,7 +46,14 @@ export default {
             return embedService.error(message, 'Timeout duration cannot exceed 28 days.');
         }
 
-        const reason = args.slice(2).join(' ') || 'No reason provided';
+        let reasonArgs = args.slice(2);
+        const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));
+        let proof = null;
+        if (proofIdx !== -1) {
+            proof = reasonArgs[proofIdx].slice(6) || null;
+            reasonArgs = reasonArgs.filter((_, i) => i !== proofIdx);
+        }
+        const reason = reasonArgs.join(' ') || 'No reason provided';
 
         await target.timeout(duration * 1000, reason);
 
@@ -57,6 +64,7 @@ export default {
             targetId: target.id,
             reason,
             duration,
+            proof,
         });
 
         return embedService.modActionSuccess(message, {
@@ -66,6 +74,7 @@ export default {
             guildId: message.guild.id,
             reason,
             duration: args[1],
+            proof,
         });
     },
 }

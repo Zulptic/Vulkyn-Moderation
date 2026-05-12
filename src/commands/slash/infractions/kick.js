@@ -8,11 +8,13 @@ export default {
         .setName('kick')
         .setDescription('Kick a user from the server')
         .addUserOption(opt => opt.setName('user').setDescription('User to kick').setRequired(true))
-        .addStringOption(opt => opt.setName('reason').setDescription('Reason for the kick')),
+        .addStringOption(opt => opt.setName('reason').setDescription('Reason for the kick'))
+        .addStringOption(opt => opt.setName('proof').setDescription('Evidence for this action (link or text)')),
 
     async execute(interaction, client) {
         const target = interaction.options.getMember('user');
         const reason = interaction.options.getString('reason') || 'No reason provided.';
+        const proof = interaction.options.getString('proof') || null;
 
         if (!target) {
             return embedService.error(interaction, 'User not found in this server.');
@@ -38,6 +40,7 @@ export default {
             moderatorId: interaction.user.id,
             targetId: target.id,
             reason,
+            proof,
         });
 
         await target.kick(reason);
@@ -48,6 +51,7 @@ export default {
             caseNumber: infraction.case_number,
             guildId: interaction.guild.id,
             reason,
+            proof,
         });
     }
 }

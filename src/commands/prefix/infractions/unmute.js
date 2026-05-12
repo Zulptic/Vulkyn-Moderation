@@ -28,10 +28,11 @@ export default {
         const reason = args.slice(1).join(' ') || 'No reason provided';
 
         const { rows } = await client.db.query(
-            `SELECT id FROM infractions WHERE guild_id = $1 AND user_id = $2 AND type = 'mute' AND active = true ORDER BY created_at DESC LIMIT 1`,
+            `SELECT id, case_number FROM infractions WHERE guild_id = $1 AND user_id = $2 AND type = 'mute' AND active = true ORDER BY created_at DESC LIMIT 1`,
             [message.guild.id, target.id]
         );
         const originalInfractionId = rows[0]?.id;
+        const originalCaseNumber = rows[0]?.case_number;
 
         await target.roles.remove(muteRoleId, reason);
 
@@ -52,7 +53,7 @@ export default {
         return embedService.modActionSuccess(message, {
             action: 'unmute',
             targetId: target.id,
-            caseNumber: originalInfractionId,
+            caseNumber: originalCaseNumber,
             guildId: message.guild.id,
             reason,
         });

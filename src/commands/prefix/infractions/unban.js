@@ -17,10 +17,11 @@ export default {
         const reason = args.slice(1).join(' ') || 'No reason provided';
 
         const { rows } = await client.db.query(
-            `SELECT id FROM infractions WHERE guild_id = $1 AND user_id = $2 AND type = 'ban' AND active = true ORDER BY created_at DESC LIMIT 1`,
+            `SELECT id, case_number FROM infractions WHERE guild_id = $1 AND user_id = $2 AND type = 'ban' AND active = true ORDER BY created_at DESC LIMIT 1`,
             [message.guild.id, userId]
         );
         const originalInfractionId = rows[0]?.id;
+        const originalCaseNumber = rows[0]?.case_number;
 
         await message.guild.members.unban(userId, reason);
 
@@ -41,7 +42,7 @@ export default {
         return embedService.modActionSuccess(message, {
             action: 'unban',
             targetId: userId,
-            caseNumber: originalInfractionId,
+            caseNumber: originalCaseNumber,
             guildId: message.guild.id,
             reason,
         });

@@ -50,6 +50,7 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildModeration,
+        GatewayIntentBits.GuildIntegrations,
         GatewayIntentBits.MessageContent,
     ],
     partials: [Partials.Message, Partials.Channel],
@@ -90,6 +91,13 @@ async function start() {
 
         await client.login(process.env.DISCORD_TOKEN);
         logger.info(`Shard ${SHARD_ID}/${TOTAL_SHARDS - 1} logged in`);
+
+        // DEBUG: log raw integration-related gateway events
+        client.on('raw', packet => {
+            if (packet.t?.toLowerCase().includes('integration') || packet.t?.toLowerCase().includes('guild_member')) {
+                logger.info(`[raw] ${packet.t}`);
+            }
+        });
     } catch (err) {
         logger.error('Failed to start:', err);
         process.exit(1);

@@ -3,17 +3,23 @@ import { pathToFileURL } from 'url';
 import path from 'path';
 import { logger } from '../utils/logger.js';
 
-export async function loadEvents(client) {
-    const eventsPath = path.resolve('src/events');
-    const files = await readdir(eventsPath);
-    const eventFiles = files.filter((f) => f.endsWith('.js'));
+async function loadFromDir(dirPath, client) {
+    const entries = await readdir(dirPath, { withFileTypes: true });
 
-    for (const file of eventFiles) {
-        const filePath = path.join(eventsPath, file);
-        const event = (await import(pathToFileURL(filePath).href)).default;
+    for (const entry of entries) {
+        const fullPath = path.join(dirPath, entry.name);
+
+        if (entry.isDirectory()) {
+            await loadFromDir(fullPath, client);
+            continue;
+        }
+
+        if (!entry.name.endsWith('.js')) continue;
+
+        const event = (await import(pathToFileURL(fullPath).href)).default;
 
         if (!event?.name || !event?.execute) {
-            logger.warn(`Skipping invalid event file: ${file}`);
+            logger.warn(`Skipping invalid event file: ${entry.name}`);
             continue;
         }
 
@@ -25,4 +31,9 @@ export async function loadEvents(client) {
 
         logger.info(`Loaded event: ${event.name}`);
     }
+}
+
+export async function loadEvents(client) {
+    const eventsPath = path.resolve('src/events');
+    await loadFromDir(eventsPath, client);
 }

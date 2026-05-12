@@ -43,6 +43,7 @@ const ACTION_LABELS = {
     mute: 'Muted',
     unmute: 'Unmuted',
     timeout: 'Timed out',
+    untimeout: 'Removed Timeout',
     kick: 'Kicked',
     softban: 'Softbanned',
     ban: 'Banned',
@@ -163,6 +164,28 @@ async function send(target, type, options = {}) {
     return target.reply(payload);
 }
 
+async function sendStandardized(target, container, ephemeral, files = []) {
+    const flags = ephemeral
+        ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
+        : MessageFlags.IsComponentsV2;
+
+    const payload = {
+        components: [container],
+        flags,
+        allowedMentions: { repliedUser: false },
+        ...(files.length && { files }),
+    };
+
+    if (target.isChatInputCommand?.()) {
+        if (target.replied || target.deferred) {
+            return target.editReply(payload);
+        }
+        return target.reply(payload);
+    }
+
+    return target.reply(payload);
+}
+
 async function sendToChannel(channel, type, options = {}) {
     const container = build(type, options);
 
@@ -240,28 +263,6 @@ async function sendUsage(target, usage, client) {
         );
 
     return sendStandardized(target, container, true);
-}
-
-async function sendStandardized(target, container, ephemeral, files = []) {
-    const flags = ephemeral
-        ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
-        : MessageFlags.IsComponentsV2;
-
-    const payload = {
-        components: [container],
-        flags,
-        allowedMentions: { repliedUser: false },
-        ...(files.length && { files }),
-    };
-
-    if (target.isChatInputCommand?.()) {
-        if (target.replied || target.deferred) {
-            return target.editReply(payload);
-        }
-        return target.reply(payload);
-    }
-
-    return target.reply(payload);
 }
 
 async function sendAvatarInfo(target, user) {
@@ -1004,13 +1005,14 @@ async function sendMemberRoleInfo(target, member) {
     return sendStandardized(target, container, false);
 }
 
-async function sendModActionSuccess(target, { action, targetId, caseNumber, guildId, reason, duration = null, purged = null }) {
+async function sendModActionSuccess(target, { action, targetId, caseNumber, guildId, reason, duration = null, purged = null, proof = null }) {
     const label = ACTION_LABELS[action] ?? action;
     const headerText = `${EMOJI.success} **|** ${label} **<@${targetId}>** **|** Case #${caseNumber}`;
 
     const detailLines = [`**Reason:** ${reason}`];
     if (duration !== null) detailLines.push(`**Duration:** ${duration}`);
     if (purged !== null) detailLines.push(`**Purged:** ${purged}`);
+    if (proof !== null) detailLines.push(`**Proof:** ${proof}`);
     detailLines.push(`**Date:** <t:${Math.floor(Date.now() / 1000)}:f>`);
 
     const container = new ContainerBuilder()
@@ -1031,12 +1033,13 @@ async function sendModActionSuccess(target, { action, targetId, caseNumber, guil
     return sendStandardized(target, container, false);
 }
 
-async function sendMultiModActionSuccess(target, { action, actioned, failed, guildId, reason, duration = null }) {
+async function sendMultiModActionSuccess(target, { action, actioned, failed, guildId, reason, duration = null, proof = null }) {
     const label = ACTION_LABELS[action] ?? action;
     const headerText = `${EMOJI.success} **|** ${label} **${actioned.length}** user${actioned.length !== 1 ? 's' : ''}`;
 
     const detailLines = [`**Reason:** ${reason}`];
     if (duration !== null) detailLines.push(`**Duration:** ${duration}`);
+    if (proof !== null) detailLines.push(`**Proof:** ${proof}`);
     detailLines.push(`**Date:** <t:${Math.floor(Date.now() / 1000)}:f>`);
 
     const actionedLines = actioned.map(({ userId, caseNumber }) =>

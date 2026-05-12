@@ -13,6 +13,18 @@ export default {
         const config = await getGuildConfig(interaction.guild.id, client);
         const cmdConfig = config?.commands || {};
 
+        // Check ignored channels
+        if (cmdConfig.ignoredChannels?.includes(interaction.channelId)) {
+            return embedService.error(interaction, 'Commands cannot be used in this channel.');
+        }
+
+        // Check ignored roles
+        if (cmdConfig.ignoredRoles?.length > 0) {
+            if (interaction.member.roles.cache.some(role => cmdConfig.ignoredRoles.includes(role.id))) {
+                return embedService.error(interaction, 'You do not have permissions to use commands.');
+            }
+        }
+
         const command = client.slashCommands.get(interaction.commandName);
         if (!command) return;
 

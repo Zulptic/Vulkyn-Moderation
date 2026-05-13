@@ -84,7 +84,7 @@ const DEFAULT_CONFIG = {
         dmOnBan: true,
         showModInDm: false,
         applications: { categoryChannel: null, integrationCreate: null, integrationDelete: null, applicationCommandPermissionsUpdate: null },
-        channels: { categoryChannel: null, channelCreate: null, channelDelete: null },
+        channels: { categoryChannel: null, categoryCreate: null, categoryDelete: null, channelCreate: null, channelDelete: null, channelNameUpdate: null, channelTopicUpdate: null, channelNSFWUpdate: null, channelParentUpdate: null, channelTypeUpdate: null, channelBitrateUpdate: null, channelUserLimitUpdate: null, channelSlowModeUpdate: null, channelRTCRegionUpdate: null, channelVideoQualityUpdate: null, channelDefaultArchiveDurationUpdate: null, channelDefaultThreadSlowModeUpdate: null, channelDefaultReactionEmojiUpdate: null, channelDefaultSortOrderUpdate: null, channelForumTagsUpdate: null, channelForumLayoutUpdate: null, channelVoiceStatusUpdate: null, channelPinsUpdate: null, channelPermissionsUpdate: null },
         discordAutoMod: { categoryChannel: null },
         emojis: { categoryChannel: null },
         events: { categoryChannel: null },

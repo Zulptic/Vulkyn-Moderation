@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
+import { canPunishTarget } from '../../../services/permissionService.js';
 
 export default {
     name: 'softban',
@@ -34,6 +35,9 @@ export default {
         if (member && !member.bannable) {
             return embedService.error(interaction, 'I cannot softban this user. They may have a higher role than me.');
         }
+
+        const punishErr = canPunishTarget(interaction.member, member);
+        if (punishErr) return embedService.error(interaction, punishErr);
 
         await interaction.deferReply({ flags: 64 });
 

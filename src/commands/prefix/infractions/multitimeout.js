@@ -1,5 +1,6 @@
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
+import { canPunishTarget } from '../../../services/permissionService.js';
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
 
@@ -54,6 +55,9 @@ export default {
             if (!member) { failed.push({ id, reason: 'Not found in server' }); continue; }
             if (member.user.bot) { failed.push({ id, reason: 'Cannot timeout a bot' }); continue; }
             if (!member.moderatable) { failed.push({ id, reason: 'Missing permissions' }); continue; }
+
+            const punishErr = canPunishTarget(message.member, member);
+            if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             await member.timeout(duration * 1000, reason);
 

@@ -1,5 +1,6 @@
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
+import { canPunishTarget } from '../../../services/permissionService.js';
 
 function extractIds(str) {
     return [...str.matchAll(/\d{17,20}/g)].map(m => m[0]);
@@ -38,6 +39,10 @@ export default {
             if (!user) { failed.push({ id, reason: 'User not found' }); continue; }
             if (user.bot) { failed.push({ id, reason: 'Cannot warn a bot' }); continue; }
             if (user.id === message.author.id) { failed.push({ id, reason: 'Cannot warn yourself' }); continue; }
+
+            const targetMember = await message.guild.members.fetch(id).catch(() => null);
+            const punishErr = canPunishTarget(message.member, targetMember);
+            if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             const { infraction } = await logModAction(client, {
                 guildId: message.guild.id,

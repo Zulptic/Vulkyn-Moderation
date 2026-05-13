@@ -22,6 +22,15 @@ export async function canUseCommand(member, commandName, client) {
 }
 
 
+export function canPunishTarget(executor, target) {
+    if (!target) return null;
+    if (target.id === executor.guild.ownerId) return 'You cannot punish the server owner.';
+    if (target.roles.highest.comparePositionTo(executor.roles.highest) >= 0) {
+        return 'You cannot punish someone with an equal or higher role than you.';
+    }
+    return null;
+}
+
 export async function canManageBot(member, client) {
     if (member.id === member.guild.ownerId) return true;
 

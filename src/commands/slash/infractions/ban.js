@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -56,6 +57,9 @@ export default {
         if (member && !member.bannable) {
             return embedService.error(interaction, 'I cannot ban this user. They may have a higher role than me.');
         }
+
+        const punishErr = canPunishTarget(interaction.member, member);
+        if (punishErr) return embedService.error(interaction, punishErr);
 
         let duration = null;
         if (durationStr) {

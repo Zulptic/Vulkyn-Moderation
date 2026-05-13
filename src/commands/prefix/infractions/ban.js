@@ -1,5 +1,6 @@
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -51,6 +52,9 @@ export default {
         if (member && !member.bannable) {
             return embedService.error(message, 'I cannot ban this user. They may have a higher role than me.');
         }
+
+        const punishErr = canPunishTarget(message.member, member);
+        if (punishErr) return embedService.error(message, punishErr);
 
         let reasonArgs = args.slice(1);
         let duration = null;

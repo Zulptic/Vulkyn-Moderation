@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
 
@@ -44,6 +45,9 @@ export default {
         if (!target.moderatable) {
             return embedService.error(interaction, 'I cannot timeout this user. They may have a higher role than me.');
         }
+
+        const punishErr = canPunishTarget(interaction.member, target);
+        if (punishErr) return embedService.error(interaction, punishErr);
 
         if (!duration) {
             return embedService.error(interaction, 'Please provide a valid duration (e.g. `5m`, `1h`, `7d`).');

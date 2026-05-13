@@ -1,5 +1,6 @@
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
 
@@ -36,6 +37,9 @@ export default {
         if (!target.moderatable) {
             return embedService.error(message, 'I cannot timeout this user. They may have a higher role than me.');
         }
+
+        const punishErr = canPunishTarget(message.member, target);
+        if (punishErr) return embedService.error(message, punishErr);
 
         const duration = parseDuration(args[1] || '');
         if (!duration) {

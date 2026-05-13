@@ -1,6 +1,7 @@
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { getGuildConfig } from "../../../services/guildConfig.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -48,6 +49,9 @@ export default {
         if (target.roles.cache.has(muteRoleId)) {
             return embedService.error(message, 'This user is already muted.');
         }
+
+        const punishErr = canPunishTarget(message.member, target);
+        if (punishErr) return embedService.error(message, punishErr);
 
         let reasonArgs = args.slice(1);
         let duration = null;

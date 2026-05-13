@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
 import { getGuildConfig } from '../../../services/guildConfig.js';
+import { canPunishTarget } from '../../../services/permissionService.js';
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -64,6 +65,9 @@ export default {
             if (!member) { failed.push({ id, reason: 'Not found in server' }); continue; }
             if (member.user.bot) { failed.push({ id, reason: 'Cannot mute a bot' }); continue; }
             if (member.roles.cache.has(muteRoleId)) { failed.push({ id, reason: 'Already muted' }); continue; }
+
+            const punishErr = canPunishTarget(interaction.member, member);
+            if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             await member.roles.add(muteRole, reason);
 

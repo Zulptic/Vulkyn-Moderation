@@ -1,5 +1,6 @@
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 export default {
     name: 'warn',
@@ -13,6 +14,9 @@ export default {
         if (!target) return embedService.error(message, 'Please mention a user or provide a valid user ID.');
         if (target.user.bot) return embedService.error(message, 'You cannot warn a bot.');
         //if (target.id === message.author.id) return embedService.error(message, 'You cannot warn yourself.');
+
+        const punishErr = canPunishTarget(message.member, target);
+        if (punishErr) return embedService.error(message, punishErr);
 
         let reasonArgs = args.slice(1);
         const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));

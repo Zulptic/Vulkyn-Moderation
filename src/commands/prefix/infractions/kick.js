@@ -1,5 +1,6 @@
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 export default {
     name: 'kick',
@@ -11,6 +12,9 @@ export default {
         if (target.user.bot) return embedService.error(message, 'You cannot kick a bot.');
         if (target.id === message.author.id) return embedService.error(message, 'You cannot kick yourself.');
         if (!target.kickable) return embedService.error(message, 'I cannot kick this user. They may have a higher role than mine.');
+
+        const punishErr = canPunishTarget(message.member, target);
+        if (punishErr) return embedService.error(message, punishErr);
 
         let reasonArgs = args.slice(1);
         const proofIdx = reasonArgs.findIndex(a => a.toLowerCase().startsWith('proof:'));

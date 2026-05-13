@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 export default {
     name: 'kick',
@@ -31,6 +32,9 @@ export default {
         if (!target.kickable) {
             return embedService.error(interaction, 'I cannot kick this user. They may have a higher role than mine.');
         }
+
+        const punishErr = canPunishTarget(interaction.member, target);
+        if (punishErr) return embedService.error(interaction, punishErr);
 
         await interaction.deferReply({ flags: 64 });
 

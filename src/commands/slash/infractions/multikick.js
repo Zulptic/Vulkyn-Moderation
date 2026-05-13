@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
+import { canPunishTarget } from '../../../services/permissionService.js';
 
 function extractIds(str) {
     return [...str.matchAll(/\d{17,20}/g)].map(m => m[0]);
@@ -40,6 +41,9 @@ export default {
             if (!member) { failed.push({ id, reason: 'Not found in server' }); continue; }
             if (member.user.bot) { failed.push({ id, reason: 'Cannot kick a bot' }); continue; }
             if (!member.kickable) { failed.push({ id, reason: 'Missing permissions' }); continue; }
+
+            const punishErr = canPunishTarget(interaction.member, member);
+            if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             const { infraction } = await logModAction(client, {
                 guildId: interaction.guild.id,

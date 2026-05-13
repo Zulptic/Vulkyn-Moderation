@@ -1,5 +1,6 @@
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
+import { canPunishTarget } from '../../../services/permissionService.js';
 
 function extractIds(str) {
     return [...str.matchAll(/\d{17,20}/g)].map(m => m[0]);
@@ -42,6 +43,9 @@ export default {
 
             const member = await message.guild.members.fetch(id).catch(() => null);
             if (member && !member.bannable) { failed.push({ id, reason: 'Missing permissions' }); continue; }
+
+            const punishErr = canPunishTarget(message.member, member);
+            if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             const { infraction } = await logModAction(client, {
                 guildId: message.guild.id,

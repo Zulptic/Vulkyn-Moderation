@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from "discord.js";
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { getGuildConfig } from "../../../services/guildConfig.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -55,6 +56,9 @@ export default {
         if (target.roles.cache.has(muteRoleId)) {
             return embedService.error(interaction, 'This user is already muted.');
         }
+
+        const punishErr = canPunishTarget(interaction.member, target);
+        if (punishErr) return embedService.error(interaction, punishErr);
 
         let duration = null;
         if (durationStr) {

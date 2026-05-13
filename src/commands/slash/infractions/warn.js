@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
+import { canPunishTarget } from "../../../services/permissionService.js";
 
 export default {
     name: 'warn',
@@ -22,6 +23,10 @@ export default {
         if (target.bot) {
             return embedService.error(interaction, 'You cannot warn a bot.');
         }
+
+        const targetMember = interaction.options.getMember('user');
+        const punishErr = canPunishTarget(interaction.member, targetMember);
+        if (punishErr) return embedService.error(interaction, punishErr);
 
         await interaction.deferReply({ flags: 64 });
 

@@ -7,6 +7,9 @@ import {
     MessageFlags,
     AuditLogEvent,
     PermissionsBitField,
+    ChannelType,
+    GuildScheduledEventStatus,
+    GuildScheduledEventEntityType,
 } from 'discord.js';
 import { getGuildConfig } from './guildConfig.js';
 import { logger } from '../utils/logger.js';
@@ -27,9 +30,38 @@ const CHANNEL_TYPE_NAMES = {
     16: 'Media',
 };
 
+const PERM_NAME_OVERRIDES = {
+    SendTTSMessages: 'Send TTS Messages',
+    UseVAD: 'Use VAD',
+};
+
+const ARCHIVE_DURATION_NAMES = { 60: '1 Hour', 1440: '1 Day', 4320: '3 Days', 10080: '1 Week' };
+const AUTOMOD_TRIGGER_NAMES = { 1: 'Keyword', 2: 'Spam', 3: 'Keyword Preset', 4: 'Mention Spam', 5: 'Member Profile' };
+const WEBHOOK_TYPE_NAMES = { 1: 'Incoming', 2: 'Channel Follower', 3: 'Application' };
+const AUTOMOD_ACTION_NAMES = { 1: 'Block Message', 2: 'Send Alert Message', 3: 'Timeout' };
+const AUTOMOD_PRESET_NAMES = { 1: 'Profanity', 2: 'Sexual Content', 3: 'Slurs' };
+const SORT_ORDER_NAMES = { 0: 'Latest Activity', 1: 'Creation Date' };
+const FORUM_LAYOUT_NAMES = { 0: 'Not Set', 1: 'List View', 2: 'Gallery View' };
+const SCHEDULED_EVENT_STATUS_NAMES = { 1: 'Scheduled', 2: 'Active', 3: 'Completed', 4: 'Cancelled' };
+const SCHEDULED_EVENT_ENTITY_TYPE_NAMES = { 1: 'Stage Instance', 2: 'Voice', 3: 'External' };
+
+function formatPermName(name) {
+    return PERM_NAME_OVERRIDES[name] ?? name.replace(/([A-Z])/g, ' $1').trim();
+}
+
 function footer(executor = null) {
     const ts = `<t:${Math.floor(Date.now() / 1000)}:f>`;
     return executor ? `**@${executor.username}** | \`${executor.id}\` • ${ts}` : `${ts}`;
+}
+
+function changeVal(changes, key, field) {
+    return changes?.find(c => c.key === key)?.[field] ?? null;
+}
+
+function formatEventLocation(event) {
+    if (event.channelId) return `<#${event.channelId}>`;
+    if (event.entityMetadata?.location) return event.entityMetadata.location;
+    return 'Unknown';
 }
 
 async function fetchAuditEntry(client, guildId, type) {
@@ -506,10 +538,6 @@ async function sendChannelVideoQualityUpdate(oldChannel, newChannel, client) {
     await sendToLog(client, newChannel.guild.id, 'channels', 'channelVideoQualityUpdate', container);
 }
 
-const ARCHIVE_DURATION_NAMES = { 60: '1 Hour', 1440: '1 Day', 4320: '3 Days', 10080: '1 Week' };
-const SORT_ORDER_NAMES = { 0: 'Latest Activity', 1: 'Creation Date' };
-const FORUM_LAYOUT_NAMES = { 0: 'Not Set', 1: 'List View', 2: 'Gallery View' };
-
 async function sendChannelDefaultArchiveDurationUpdate(oldChannel, newChannel, client) {
     if (!newChannel.guild) return;
     const entry = await fetchAuditEntry(client, newChannel.guild.id, AuditLogEvent.ChannelUpdate);
@@ -708,16 +736,6 @@ async function sendChannelPinsUpdate(channel, time, client) {
     await sendToLog(client, channel.guild.id, 'channels', 'channelPinsUpdate', container);
 }
 
-const PERM_NAME_OVERRIDES = {
-    SendTTSMessages: 'Send TTS Messages',
-    UseVAD: 'Use VAD',
-};
-
-function formatPermName(name) {
-    return PERM_NAME_OVERRIDES[name] ?? name.replace(/([A-Z])/g, ' $1').trim();
-}
-
-
 async function sendChannelPermissionsUpdate(oldChannel, newChannel, client) {
     if (!newChannel.guild) return;
 
@@ -831,10 +849,1045 @@ async function sendChannelDelete(channel, client) {
     await sendToLog(client, channel.guild.id, 'channels', 'channelDelete', container);
 }
 
+async function sendEmojiCreate(emoji, client) {
+    const entry = await fetchAuditEntry(client, emoji.guild.id, AuditLogEvent.EmojiCreate);
+    const executor = entry?.executor ?? null;
+
+    const imageURL = emoji.imageURL({ extension: emoji.animated ? 'gif' : 'png', size: 128 });
+    const restrictedRoles = emoji.roles.cache;
+    const rolesLine = restrictedRoles.size
+        ? `**Restricted To:** ${[...restrictedRoles.values()].map(r => `<@&${r.id}>`).join(', ')}`
+        : null;
+
+    const contentLines = [
+        `${EMOJI.logging} **|** Emoji Created`,
+        `**Name:** :${emoji.name}:`,
+        `**Animated:** ${emoji.animated ? EMOJI.yes : EMOJI.no}`,
+        rolesLine,
+        `**ID:** \`${emoji.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder().setAccentColor(0x57f287);
+
+    if (imageURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent(contentLines.join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(imageURL))
+        );
+    } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(contentLines.join('\n')));
+    }
+
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, emoji.guild.id, 'emojis', 'emojiCreate', container);
+}
+
+async function sendEmojiDelete(emoji, client) {
+    const entry = await fetchAuditEntry(client, emoji.guild.id, AuditLogEvent.EmojiDelete);
+    const executor = entry?.executor ?? null;
+
+    const imageURL = emoji.imageURL({ extension: emoji.animated ? 'gif' : 'png', size: 128 });
+
+    const contentLines = [
+        `${EMOJI.logging} **|** Emoji Deleted`,
+        `**Name:** :${emoji.name}:`,
+        `**Animated:** ${emoji.animated ? EMOJI.yes : EMOJI.no}`,
+        `**ID:** \`${emoji.id}\``,
+    ];
+
+    const container = new ContainerBuilder().setAccentColor(0xe24b4a);
+
+    if (imageURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent(contentLines.join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(imageURL))
+        );
+    } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(contentLines.join('\n')));
+    }
+
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, emoji.guild.id, 'emojis', 'emojiDelete', container);
+}
+
+async function sendEmojiNameUpdate(oldEmoji, newEmoji, client) {
+    const entry = await fetchAuditEntry(client, newEmoji.guild.id, AuditLogEvent.EmojiUpdate);
+    const executor = entry?.executor ?? null;
+
+    const imageURL = newEmoji.imageURL({ extension: newEmoji.animated ? 'gif' : 'png', size: 128 });
+
+    const contentLines = [
+        `${EMOJI.logging} **|** Emoji Name Updated`,
+        `\n**Name:** :${oldEmoji.name}: → :${newEmoji.name}:`,
+        `**ID:** \`${newEmoji.id}\``,
+    ];
+
+    const container = new ContainerBuilder().setAccentColor(0xfac775);
+
+    if (imageURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent(contentLines.join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(imageURL))
+        );
+    } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(contentLines.join('\n')));
+    }
+
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEmoji.guild.id, 'emojis', 'emojiNameUpdate', container);
+}
+
+async function sendEmojiRolesUpdate(oldEmoji, newEmoji, client) {
+    const entry = await fetchAuditEntry(client, newEmoji.guild.id, AuditLogEvent.EmojiUpdate);
+    const executor = entry?.executor ?? null;
+
+    const oldRoles = oldEmoji.roles.cache;
+    const newRoles = newEmoji.roles.cache;
+    const added = [...newRoles.values()].filter(r => !oldRoles.has(r.id));
+    const removed = [...oldRoles.values()].filter(r => !newRoles.has(r.id));
+    if (!added.length && !removed.length) return;
+
+    const imageURL = newEmoji.imageURL({ extension: newEmoji.animated ? 'gif' : 'png', size: 128 });
+
+    const detailLines = [
+        `${EMOJI.logging} **|** Emoji Roles Updated`,
+        `**Emoji:** :${newEmoji.name}: \`${newEmoji.name}\``,
+        added.length ? `**Added:** ${added.map(r => `<@&${r.id}>`).join(', ')}` : null,
+        removed.length ? `**Removed:** ${removed.map(r => `<@&${r.id}>`).join(', ')}` : null,
+        newRoles.size === 0 ? `**Restrictions:** None (unrestricted)` : null,
+        `**ID:** \`${newEmoji.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder().setAccentColor(0xfac775);
+
+    if (imageURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent(detailLines.join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(imageURL))
+        );
+    } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')));
+    }
+
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEmoji.guild.id, 'emojis', 'emojiRolesUpdate', container);
+}
+
+async function sendAutoModRuleCreate(rule, client) {
+    const guildId = rule.guild?.id ?? rule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleCreate);
+    const executor = entry?.executor ?? null;
+
+    const triggerName = AUTOMOD_TRIGGER_NAMES[rule.triggerType] ?? 'Unknown';
+
+    const actionLines = rule.actions.map(a => {
+        const name = AUTOMOD_ACTION_NAMES[a.type] ?? 'Unknown';
+        if (a.type === 2 && a.metadata?.channelId) return `> ${name} (<#${a.metadata.channelId}>)`;
+        if (a.type === 3 && a.metadata?.durationSeconds) return `> ${name} (${a.metadata.durationSeconds}s)`;
+        return `> ${name}`;
+    });
+
+    const presets = rule.triggerMetadata?.presets ?? [];
+    const keywords = rule.triggerMetadata?.keywordFilter ?? [];
+
+    const detailLines = [
+        `**Name:** ${rule.name}`,
+        `**Trigger:** ${triggerName}`,
+        `**Enabled:** ${rule.enabled ? EMOJI.yes : EMOJI.no}`,
+        presets.length ? `**Presets:** ${presets.map(p => AUTOMOD_PRESET_NAMES[p] ?? 'Unknown').join(', ')}` : null,
+        keywords.length ? `**Keywords:** ${keywords.slice(0, 5).map(k => `\`${k}\``).join(', ')}${keywords.length > 5 ? ` +${keywords.length - 5} more` : ''}` : null,
+        `**Actions:**\n${actionLines.join('\n')}`,
+        rule.exemptRoles.size ? `**Exempt Roles:**\n${[...rule.exemptRoles.values()].map(r => `> <@&${r.id}>`).join('\n')}` : null,
+        (() => {
+            const channels = [...rule.exemptChannels.values()].filter(c => c.type !== ChannelType.GuildCategory);
+            return channels.length ? `**Exempt Channels:**\n${channels.map(c => `> <#${c.id}>`).join('\n')}` : null;
+        })(),
+        (() => {
+            const categories = [...rule.exemptChannels.values()].filter(c => c.type === ChannelType.GuildCategory);
+            return categories.length ? `**Exempt Categories:**\n${categories.map(c => `> ${c.name}`).join('\n')}` : null;
+        })(),
+        `**ID:** \`${rule.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x57f287)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Created`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleCreate', container);
+}
+
+async function sendAutoModRuleDelete(rule, client) {
+    const guildId = rule.guild?.id ?? rule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleDelete);
+    const executor = entry?.executor ?? null;
+
+    const triggerName = AUTOMOD_TRIGGER_NAMES[rule.triggerType] ?? 'Unknown';
+
+    const actionLines = rule.actions.map(a => {
+        const name = AUTOMOD_ACTION_NAMES[a.type] ?? 'Unknown';
+        if (a.type === 2 && a.metadata?.channelId) return `> ${name} (<#${a.metadata.channelId}>)`;
+        if (a.type === 3 && a.metadata?.durationSeconds) return `> ${name} (${a.metadata.durationSeconds}s)`;
+        return `> ${name}`;
+    });
+
+    const presets = rule.triggerMetadata?.presets ?? [];
+    const keywords = rule.triggerMetadata?.keywordFilter ?? [];
+
+    const detailLines = [
+        `**Name:** ${rule.name}`,
+        `**Trigger:** ${triggerName}`,
+        `**Enabled:** ${rule.enabled ? EMOJI.yes : EMOJI.no}`,
+        presets.length ? `**Presets:** ${presets.map(p => AUTOMOD_PRESET_NAMES[p] ?? 'Unknown').join(', ')}` : null,
+        keywords.length ? `**Keywords:** ${keywords.slice(0, 5).map(k => `\`${k}\``).join(', ')}${keywords.length > 5 ? ` +${keywords.length - 5} more` : ''}` : null,
+        `**Actions:**\n${actionLines.join('\n')}`,
+        rule.exemptRoles.size ? `**Exempt Roles:**\n${[...rule.exemptRoles.values()].map(r => `> <@&${r.id}>`).join('\n')}` : null,
+        (() => {
+            const channels = [...rule.exemptChannels.values()].filter(c => c.type !== ChannelType.GuildCategory);
+            return channels.length ? `**Exempt Channels:**\n${channels.map(c => `> <#${c.id}>`).join('\n')}` : null;
+        })(),
+        (() => {
+            const categories = [...rule.exemptChannels.values()].filter(c => c.type === ChannelType.GuildCategory);
+            return categories.length ? `**Exempt Categories:**\n${categories.map(c => `> ${c.name}`).join('\n')}` : null;
+        })(),
+        `**ID:** \`${rule.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe24b4a)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Deleted`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleDelete', container);
+}
+
+async function sendAutoModRuleActionsUpdate(oldRule, newRule, client) {
+    const guildId = newRule.guild?.id ?? newRule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleUpdate);
+    const executor = entry?.executor ?? null;
+
+    const fmtActions = actions => actions.map(a => {
+        const name = AUTOMOD_ACTION_NAMES[a.type] ?? 'Unknown';
+        if (a.type === 2 && a.metadata?.channelId) return `> ${name} (<#${a.metadata.channelId}>)`;
+        if (a.type === 3 && a.metadata?.durationSeconds) return `> ${name} (${a.metadata.durationSeconds}s)`;
+        return `> ${name}`;
+    }).join('\n');
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Actions Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            [
+                `**Name:** ${newRule.name}`,
+                `**Before:**\n${fmtActions(oldRule.actions)}`,
+                `**After:**\n${fmtActions(newRule.actions)}`,
+                `**ID:** \`${newRule.id}\``,
+            ].join('\n')
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleActionsUpdate', container);
+}
+
+async function sendAutoModRuleContentUpdate(oldRule, newRule, client) {
+    const guildId = newRule.guild?.id ?? newRule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleUpdate);
+    const executor = entry?.executor ?? null;
+
+    const diffList = (oldArr, newArr) => {
+        const added = newArr.filter(x => !oldArr.includes(x));
+        const removed = oldArr.filter(x => !newArr.includes(x));
+        return { added, removed };
+    };
+
+    const oldMeta = oldRule.triggerMetadata ?? {};
+    const newMeta = newRule.triggerMetadata ?? {};
+
+    const detailLines = [`**Name:** ${newRule.name}`];
+
+    const kwDiff = diffList(oldMeta.keywordFilter ?? [], newMeta.keywordFilter ?? []);
+    if (kwDiff.added.length) detailLines.push(`**Keywords Added:**\n${kwDiff.added.slice(0, 5).map(k => `> \`${k}\``).join('\n')}${kwDiff.added.length > 5 ? `\n> +${kwDiff.added.length - 5} more` : ''}`);
+    if (kwDiff.removed.length) detailLines.push(`**Keywords Removed:**\n${kwDiff.removed.slice(0, 5).map(k => `> \`${k}\``).join('\n')}${kwDiff.removed.length > 5 ? `\n> +${kwDiff.removed.length - 5} more` : ''}`);
+
+    const rxDiff = diffList(oldMeta.regexPatterns ?? [], newMeta.regexPatterns ?? []);
+    if (rxDiff.added.length) detailLines.push(`**Regex Added:**\n${rxDiff.added.map(r => `> \`${r}\``).join('\n')}`);
+    if (rxDiff.removed.length) detailLines.push(`**Regex Removed:**\n${rxDiff.removed.map(r => `> \`${r}\``).join('\n')}`);
+
+    const alDiff = diffList(oldMeta.allowList ?? [], newMeta.allowList ?? []);
+    if (alDiff.added.length) detailLines.push(`**Allow List Added:**\n${alDiff.added.slice(0, 5).map(k => `> \`${k}\``).join('\n')}${alDiff.added.length > 5 ? `\n> +${alDiff.added.length - 5} more` : ''}`);
+    if (alDiff.removed.length) detailLines.push(`**Allow List Removed:**\n${alDiff.removed.slice(0, 5).map(k => `> \`${k}\``).join('\n')}${alDiff.removed.length > 5 ? `\n> +${alDiff.removed.length - 5} more` : ''}`);
+
+    const prDiff = diffList(oldMeta.presets ?? [], newMeta.presets ?? []);
+    if (prDiff.added.length) detailLines.push(`**Presets Added:** ${prDiff.added.map(p => AUTOMOD_PRESET_NAMES[p] ?? 'Unknown').join(', ')}`);
+    if (prDiff.removed.length) detailLines.push(`**Presets Removed:** ${prDiff.removed.map(p => AUTOMOD_PRESET_NAMES[p] ?? 'Unknown').join(', ')}`);
+
+    if ((oldMeta.mentionTotalLimit ?? null) !== (newMeta.mentionTotalLimit ?? null)) {
+        detailLines.push(`**Mention Limit:** ${oldMeta.mentionTotalLimit ?? 'None'} → ${newMeta.mentionTotalLimit ?? 'None'}`);
+    }
+    if ((oldMeta.mentionRaidProtectionEnabled ?? false) !== (newMeta.mentionRaidProtectionEnabled ?? false)) {
+        detailLines.push(`**Raid Protection:** ${oldMeta.mentionRaidProtectionEnabled ? EMOJI.yes : EMOJI.no} → ${newMeta.mentionRaidProtectionEnabled ? EMOJI.yes : EMOJI.no}`);
+    }
+
+    if (detailLines.length === 1) return;
+    detailLines.push(`**ID:** \`${newRule.id}\``);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Content Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleContentUpdate', container);
+}
+
+async function sendAutoModRuleRolesUpdate(oldRule, newRule, client) {
+    const guildId = newRule.guild?.id ?? newRule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleUpdate);
+    const executor = entry?.executor ?? null;
+
+    const oldRoles = oldRule.exemptRoles;
+    const newRoles = newRule.exemptRoles;
+    const added = [...newRoles.values()].filter(r => !oldRoles.has(r.id));
+    const removed = [...oldRoles.values()].filter(r => !newRoles.has(r.id));
+    if (!added.length && !removed.length) return;
+
+    const detailLines = [
+        `**Name:** ${newRule.name}`,
+        added.length ? `**Added:**\n${added.map(r => `> <@&${r.id}>`).join('\n')}` : null,
+        removed.length ? `**Removed:**\n${removed.map(r => `> <@&${r.id}>`).join('\n')}` : null,
+        `**ID:** \`${newRule.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Exempt Roles Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleRolesUpdate', container);
+}
+
+async function sendAutoModRuleChannelsUpdate(oldRule, newRule, client) {
+    const guildId = newRule.guild?.id ?? newRule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleUpdate);
+    const executor = entry?.executor ?? null;
+
+    const oldChannels = oldRule.exemptChannels;
+    const newChannels = newRule.exemptChannels;
+    const added = [...newChannels.values()].filter(c => !oldChannels.has(c.id));
+    const removed = [...oldChannels.values()].filter(c => !newChannels.has(c.id));
+    if (!added.length && !removed.length) return;
+
+    const fmtChannel = c => c.type === ChannelType.GuildCategory ? `> ${c.name}` : `> <#${c.id}>`;
+
+    const detailLines = [
+        `**Name:** ${newRule.name}`,
+        added.length ? `**Added:**\n${added.map(fmtChannel).join('\n')}` : null,
+        removed.length ? `**Removed:**\n${removed.map(fmtChannel).join('\n')}` : null,
+        `**ID:** \`${newRule.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Exempt Channels Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleChannelsUpdate', container);
+}
+
+async function sendAutoModRuleNameUpdate(oldRule, newRule, client) {
+    const guildId = newRule.guild?.id ?? newRule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleUpdate);
+    const executor = entry?.executor ?? null;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Name Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            [
+                `**Name:** ${oldRule.name} → ${newRule.name}`,
+                `**ID:** \`${newRule.id}\``,
+            ].join('\n')
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleNameUpdate', container);
+}
+
+async function sendAutoModRuleToggle(oldRule, newRule, client) {
+    const guildId = newRule.guild?.id ?? newRule.guildId;
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.AutoModerationRuleUpdate);
+    const executor = entry?.executor ?? null;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(newRule.enabled ? 0x57f287 : 0xe24b4a)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** AutoMod Rule Toggled`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            [
+                `**Name:** ${newRule.name}`,
+                `**Enabled:** ${newRule.enabled ? EMOJI.yes : EMOJI.no}`,
+                `**ID:** \`${newRule.id}\``,
+            ].join('\n')
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleToggle', container);
+}
+
+async function sendWebhookCreate(entry, guildId, client) {
+    const executor = entry.executor ?? null;
+    const changes = entry.changes ?? [];
+    const name = changeVal(changes, 'name', 'new') ?? 'Unknown';
+    const channelId = changeVal(changes, 'channel_id', 'new');
+    const type = changeVal(changes, 'type', 'new');
+    const avatarHash = changeVal(changes, 'avatar_hash', 'new');
+    const avatarURL = avatarHash ? `https://cdn.discordapp.com/avatars/${entry.targetId}/${avatarHash}.png` : null;
+
+    const detailLines = [
+        `**Name:** ${name}`,
+        channelId ? `**Channel:** <#${channelId}>` : null,
+        type ? `**Type:** ${WEBHOOK_TYPE_NAMES[type] ?? 'Unknown'}` : null,
+        `**ID:** \`${entry.targetId}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x57f287)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Webhook Created`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+
+    if (avatarURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent(detailLines.join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(avatarURL))
+        );
+    } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')));
+    }
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'webhooks', 'webhookCreate', container);
+}
+
+async function sendWebhookDelete(entry, guildId, client) {
+    const executor = entry.executor ?? null;
+    const changes = entry.changes ?? [];
+    const name = changeVal(changes, 'name', 'old') ?? 'Unknown';
+    const channelId = changeVal(changes, 'channel_id', 'old');
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe24b4a)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Webhook Deleted`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Name:** ${name}`,
+            channelId ? `**Channel:** <#${channelId}>` : null,
+            `**ID:** \`${entry.targetId}\``,
+        ].filter(Boolean).join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'webhooks', 'webhookDelete', container);
+}
+
+async function sendWebhookNameUpdate(entry, guildId, client) {
+    const executor = entry.executor ?? null;
+    const changes = entry.changes ?? [];
+    const oldName = changeVal(changes, 'name', 'old') ?? 'Unknown';
+    const newName = changeVal(changes, 'name', 'new') ?? 'Unknown';
+    const channelId = changeVal(changes, 'channel_id', 'new') ?? changeVal(changes, 'channel_id', 'old');
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Webhook Name Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Name:** ${oldName} → ${newName}`,
+            channelId ? `**Channel:** <#${channelId}>` : null,
+            `**ID:** \`${entry.targetId}\``,
+        ].filter(Boolean).join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'webhooks', 'webhookNameUpdate', container);
+}
+
+async function sendWebhookAvatarUpdate(entry, guildId, client) {
+    const executor = entry.executor ?? null;
+    const changes = entry.changes ?? [];
+    const newHash = changeVal(changes, 'avatar_hash', 'new');
+    const avatarURL = newHash ? `https://cdn.discordapp.com/avatars/${entry.targetId}/${newHash}.png` : null;
+
+    const nameFromChanges = changeVal(changes, 'name', 'new') ?? changeVal(changes, 'name', 'old');
+    const guild = client.guilds.cache.get(guildId);
+    const webhooks = nameFromChanges ? null : await guild?.fetchWebhooks().catch(() => null);
+    const name = nameFromChanges ?? webhooks?.get(entry.targetId)?.name ?? 'Unknown';
+
+    const contentLines = [
+        `${EMOJI.logging} **|** Webhook Avatar Updated`,
+        `**Name:** ${name}`,
+        `**ID:** \`${entry.targetId}\``,
+    ];
+
+    const container = new ContainerBuilder().setAccentColor(0xfac775);
+    if (avatarURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent(contentLines.join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(avatarURL))
+        );
+    } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(contentLines.join('\n')));
+    }
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'webhooks', 'webhookAvatarUpdate', container);
+}
+
+async function sendWebhookChannelUpdate(entry, guildId, client) {
+    const executor = entry.executor ?? null;
+    const changes = entry.changes ?? [];
+    const oldChannelId = changeVal(changes, 'channel_id', 'old');
+    const newChannelId = changeVal(changes, 'channel_id', 'new');
+    const name = changeVal(changes, 'name', 'new') ?? changeVal(changes, 'name', 'old');
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Webhook Channel Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            name ? `**Name:** ${name}` : null,
+            `**Channel:** ${oldChannelId ? `<#${oldChannelId}>` : 'Unknown'} → ${newChannelId ? `<#${newChannelId}>` : 'Unknown'}`,
+            `**ID:** \`${entry.targetId}\``,
+        ].filter(Boolean).join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'webhooks', 'webhookChannelUpdate', container);
+}
+
+async function sendWebhooksUpdate(channel, client) {
+    const guildId = channel.guild?.id;
+    if (!guildId) return;
+
+    const now = Date.now();
+    const threshold = 10000;
+
+    const [createEntry, updateEntry, deleteEntry] = await Promise.all([
+        fetchAuditEntry(client, guildId, AuditLogEvent.WebhookCreate),
+        fetchAuditEntry(client, guildId, AuditLogEvent.WebhookUpdate),
+        fetchAuditEntry(client, guildId, AuditLogEvent.WebhookDelete),
+    ]);
+
+    const candidates = [createEntry, updateEntry, deleteEntry]
+        .filter(e => e && (now - e.createdTimestamp) < threshold);
+    if (!candidates.length) return;
+
+    candidates.sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+    const entry = candidates[0];
+
+    if (entry.action === AuditLogEvent.WebhookCreate) {
+        await sendWebhookCreate(entry, guildId, client);
+    } else if (entry.action === AuditLogEvent.WebhookDelete) {
+        await sendWebhookDelete(entry, guildId, client);
+    } else if (entry.action === AuditLogEvent.WebhookUpdate) {
+        const changes = entry.changes ?? [];
+        if (changes.some(c => c.key === 'name')) await sendWebhookNameUpdate(entry, guildId, client);
+        if (changes.some(c => c.key === 'avatar_hash')) await sendWebhookAvatarUpdate(entry, guildId, client);
+        if (changes.some(c => c.key === 'channel_id')) await sendWebhookChannelUpdate(entry, guildId, client);
+    }
+}
+
+async function sendInviteCreate(invite, client) {
+    const entry = await fetchAuditEntry(client, invite.guild.id, AuditLogEvent.InviteCreate);
+    const executor = entry.executor ?? null;
+
+    const maxUses = invite.maxUses === 0 ? 'Unlimited' : `${invite.maxUses}`;
+    const maxAge = invite.maxAge === 0 ? 'Never' : `${invite.maxAge / 3600}h`;
+
+    const detailLines = [
+        `**Code:** \`${invite.code}\``,
+        `**Channel:** ${invite.channel ? `${invite.channel.name} — <#${invite.channel.id}>` : 'Unknown'}`,
+        `**Max Uses:** ${maxUses}`,
+        `**Expires:** ${maxAge}`,
+        `**Temporary Membership:** ${invite.temporary ? EMOJI.yes : EMOJI.no}`,
+        `**URL:** ${invite.url}`,
+    ];
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x57f287)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Invite Created`)
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, invite.guild.id, 'invites', 'inviteCreate', container)
+}
+
+async function sendInviteDelete(invite, client) {
+    const entry = await fetchAuditEntry(client, invite.guild.id, AuditLogEvent.InviteDelete);
+    const executor = entry?.executor ?? null;
+
+    const detailLines = [
+        `**Code:** \`${invite.code}\``,
+        `**Channel:** ${invite.channel ? `${invite.channel.name} — <#${invite.channel.id}>` : 'Unknown'}`,
+        `**Uses:** ${invite.uses ?? 0}`,
+    ];
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe24b4a)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Invite Deleted`)
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, invite.guild.id, 'invites', 'inviteDelete', container);
+}
+
+async function sendScheduledEventCreate(event, client) {
+    const entry = await fetchAuditEntry(client, event.guildId, AuditLogEvent.GuildScheduledEventCreate);
+    const executor = entry?.executor ?? null;
+
+    const coverURL = event.coverImageURL({ size: 128 });
+    const startTs = event.scheduledStartTimestamp ? `<t:${Math.floor(event.scheduledStartTimestamp / 1000)}:F>` : 'Unknown';
+    const endTs = event.scheduledEndTimestamp ? `<t:${Math.floor(event.scheduledEndTimestamp / 1000)}:F>` : null;
+
+    const header = `${EMOJI.logging} **|** Event Created`;
+    const detailLines = [
+        `**Name:** ${event.name}`,
+        event.description ? `**Description:** ${event.description}` : null,
+        `**Location:** ${formatEventLocation(event)}`,
+        `**Type:** ${SCHEDULED_EVENT_ENTITY_TYPE_NAMES[event.entityType] ?? 'Unknown'}`,
+        `**Starts:** ${startTs}`,
+        endTs ? `**Ends:** ${endTs}` : null,
+        `**ID:** \`${event.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder().setAccentColor(0x57f287);
+
+    if (coverURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent([header, ...detailLines].join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(coverURL))
+        );
+    } else {
+        container
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(header))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')));
+    }
+
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventCreate', container);
+}
+
+async function sendScheduledEventDelete(event, client) {
+    const entry = await fetchAuditEntry(client, event.guildId, AuditLogEvent.GuildScheduledEventDelete);
+    const executor = entry?.executor ?? null;
+
+    const detailLines = [
+        `**Name:** ${event.name}`,
+        event.description ? `**Description:** ${event.description}` : null,
+        `**Status:** ${SCHEDULED_EVENT_STATUS_NAMES[event.status] ?? 'Unknown'}`,
+        `**ID:** \`${event.id}\``,
+    ].filter(Boolean);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe24b4a)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event Deleted`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventDelete', container);
+}
+
+async function sendScheduledEventNameUpdate(oldEvent, newEvent, client) {
+    const entry = await fetchAuditEntry(client, newEvent.guildId, AuditLogEvent.GuildScheduledEventUpdate);
+    const executor = entry?.executor ?? null;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event Name Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Name:** ${oldEvent.name} → ${newEvent.name}`,
+            `**ID:** \`${newEvent.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventNameUpdate', container);
+}
+
+async function sendScheduledEventDescriptionUpdate(oldEvent, newEvent, client) {
+    const entry = await fetchAuditEntry(client, newEvent.guildId, AuditLogEvent.GuildScheduledEventUpdate);
+    const executor = entry?.executor ?? null;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event Description Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${newEvent.name}`,
+            `**Description:** ${oldEvent.description || 'None'} → ${newEvent.description || 'None'}`,
+            `**ID:** \`${newEvent.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventDescriptionUpdate', container);
+}
+
+async function sendScheduledEventLocationUpdate(oldEvent, newEvent, client) {
+    const entry = await fetchAuditEntry(client, newEvent.guildId, AuditLogEvent.GuildScheduledEventUpdate);
+    const executor = entry?.executor ?? null;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event Location Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${newEvent.name}`,
+            `**Location:** ${formatEventLocation(oldEvent)} → ${formatEventLocation(newEvent)}`,
+            `**ID:** \`${newEvent.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventLocationUpdate', container);
+}
+
+async function sendScheduledEventPrivacyLevelUpdate(oldEvent, newEvent, client) {
+    const entry = await fetchAuditEntry(client, newEvent.guildId, AuditLogEvent.GuildScheduledEventUpdate);
+    const executor = entry?.executor ?? null;
+
+    const privacyName = level => level === 2 ? 'Guild Only' : `Unknown (${level})`;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event Privacy Level Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${newEvent.name}`,
+            `**Privacy:** ${privacyName(oldEvent.privacyLevel)} → ${privacyName(newEvent.privacyLevel)}`,
+            `**ID:** \`${newEvent.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventPrivacyLevelUpdate', container);
+}
+
+async function sendScheduledEventStartTimeUpdate(oldEvent, newEvent, client) {
+    const entry = await fetchAuditEntry(client, newEvent.guildId, AuditLogEvent.GuildScheduledEventUpdate);
+    const executor = entry?.executor ?? null;
+
+    const fmt = ts => ts ? `<t:${Math.floor(ts / 1000)}:F>` : 'None';
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event Start Time Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${newEvent.name}`,
+            `**Start:** ${fmt(oldEvent.scheduledStartTimestamp)} → ${fmt(newEvent.scheduledStartTimestamp)}`,
+            `**ID:** \`${newEvent.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventStartTimeUpdate', container);
+}
+
+async function sendScheduledEventEndTimeUpdate(oldEvent, newEvent, client) {
+    const entry = await fetchAuditEntry(client, newEvent.guildId, AuditLogEvent.GuildScheduledEventUpdate);
+    const executor = entry?.executor ?? null;
+
+    const fmt = ts => ts ? `<t:${Math.floor(ts / 1000)}:F>` : 'None';
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event End Time Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${newEvent.name}`,
+            `**End:** ${fmt(oldEvent.scheduledEndTimestamp)} → ${fmt(newEvent.scheduledEndTimestamp)}`,
+            `**ID:** \`${newEvent.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventEndTimeUpdate', container);
+}
+
+async function sendScheduledEventStatusUpdate(oldEvent, newEvent, client) {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event Status Updated`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${newEvent.name}`,
+            `**Status:** ${SCHEDULED_EVENT_STATUS_NAMES[oldEvent.status] ?? 'Unknown'} → ${SCHEDULED_EVENT_STATUS_NAMES[newEvent.status] ?? 'Unknown'}`,
+            `**ID:** \`${newEvent.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventStatusUpdate', container);
+}
+
+async function sendScheduledEventImageUpdate(oldEvent, newEvent, client) {
+    const entry = await fetchAuditEntry(client, newEvent.guildId, AuditLogEvent.GuildScheduledEventUpdate);
+    const executor = entry?.executor ?? null;
+
+    const coverURL = newEvent.coverImageURL({ size: 256 });
+    const header = `${EMOJI.logging} **|** Event Image Updated`;
+
+    const container = new ContainerBuilder().setAccentColor(0xfac775);
+
+    if (coverURL) {
+        container.addSectionComponents(
+            new SectionBuilder()
+                .addTextDisplayComponents(td => td.setContent([
+                    header,
+                    `**Event:** ${newEvent.name}`,
+                    `**ID:** \`${newEvent.id}\``,
+                ].join('\n')))
+                .setThumbnailAccessory(thumb => thumb.setURL(coverURL))
+        );
+    } else {
+        container
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(header))
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+                `**Event:** ${newEvent.name}`,
+                `**Image:** Removed`,
+                `**ID:** \`${newEvent.id}\``,
+            ].join('\n')));
+    }
+
+    container
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventImageUpdate', container);
+}
+
+async function sendScheduledEventUserAdd(event, user, client) {
+    const container = new ContainerBuilder()
+        .setAccentColor(0x57f287)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event User Subscribed`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${event.name}`,
+            `**User:** ${user.username} — <@${user.id}>`,
+            `**User ID:** \`${user.id}\``,
+            `**Event ID:** \`${event.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
+
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventUserAdd', container);
+}
+
+async function sendScheduledEventUserRemove(event, user, client) {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe24b4a)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Event User Unsubscribed`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Event:** ${event.name}`,
+            `**User:** ${user.username} — <@${user.id}>`,
+            `**User ID:** \`${user.id}\``,
+            `**Event ID:** \`${event.id}\``,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
+
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventUserRemove', container);
+}
+
+function truncate(str, max = 1000) {
+    return str.length > max ? str.slice(0, max) + '…' : str;
+}
+
+async function sendMessageDelete(message, client) {
+    const guildId = message.guildId;
+    if (!guildId) return;
+
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.MessageDelete);
+    const executor = entry?.executor ?? null;
+
+    const author = message.partial ? null : message.author;
+    const content = message.partial ? null : (message.content || null);
+
+    const detailLines = [
+        author ? `**Author:** ${author.username} — <@${author.id}>` : `**Author:** *Unknown*`,
+        `**Channel:** <#${message.channelId}>`,
+        content ? `**Content:** ${truncate(content)}` : `**Content:** *Not cached*`,
+        `**Message ID:** \`${message.id}\``,
+    ];
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe24b4a)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Message Deleted`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'messages', 'messageDelete', container);
+}
+
+async function sendMessageBulkDelete(messages, channel, client) {
+    const guildId = channel.guildId;
+    if (!guildId) return;
+
+    const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.MessageBulkDelete);
+    const executor = entry?.executor ?? null;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xe24b4a)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Messages Bulk Deleted`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Channel:** ${channel.name} — <#${channel.id}>`,
+            `**Count:** ${messages.size} messages`,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
+
+    await sendToLog(client, guildId, 'messages', 'messageBulkDelete', container);
+}
+
+async function sendMessageEdit(oldMessage, newMessage, client) {
+    const guildId = newMessage.guildId;
+    if (!guildId) return;
+
+    const oldContent = oldMessage.content || '*Empty*';
+    const newContent = newMessage.content || '*Empty*';
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xfac775)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Message Edited`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Author:** ${newMessage.author.username} — <@${newMessage.author.id}>`,
+            `**Channel:** <#${newMessage.channelId}>`,
+            `**Content:** ${truncate(oldContent)} → ${truncate(newContent)}`,
+            `**[Jump to Message](${newMessage.url})**`,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
+
+    await sendToLog(client, guildId, 'messages', 'messageEdit', container);
+}
+
+async function sendMessagePublish(oldMessage, newMessage, client) {
+    const guildId = newMessage.guildId;
+    if (!guildId) return;
+
+    const content = newMessage.content || '*No text content*';
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x57f287)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Message Published`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**Author:** ${newMessage.author.username} — <@${newMessage.author.id}>`,
+            `**Channel:** <#${newMessage.channelId}>`,
+            `**Content:** ${truncate(content)}`,
+            `**[Jump to Message](${newMessage.url})**`,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
+
+    await sendToLog(client, guildId, 'messages', 'messagePublish', container);
+}
+
+async function sendMessageCommand(message, client) {
+    const guildId = message.guildId;
+    if (!guildId) return;
+
+    const isSlash = !!message.interaction;
+    const user = isSlash ? message.interaction.user : message.author;
+    const commandText = isSlash
+        ? `\`/${message.interaction.commandName}\``
+        : truncate(message.content);
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x5865f2)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${EMOJI.logging} **|** Message Sent Using Command`))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent([
+            `**User:** ${user.username} — <@${user.id}>`,
+            `**Channel:** <#${message.channelId}>`,
+            `**Type:** ${isSlash ? 'Slash Command' : 'Prefix Command'}`,
+            `**Command:** ${commandText}`,
+        ].join('\n')))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
+
+    await sendToLog(client, guildId, 'messages', 'messageCommand', container);
+}
+
 export const loggingService = {
+    // Integration/Application Return Functions
     integrationCreate: (integration, client) => sendIntegrationCreate(integration, client),
     integrationDelete: (integration, client) => sendIntegrationDelete(integration, client),
     applicationCommandPermissionsUpdate: (data, client) => sendApplicationCommandPermissionsUpdate(data, client),
+    // Channel/Category Return Functions
     categoryCreate: (channel, client) => sendCategoryCreate(channel, client),
     categoryDelete: (channel, client) => sendCategoryDelete(channel, client),
     channelCreate: (channel, client) => sendChannelCreate(channel, client),
@@ -858,4 +1911,42 @@ export const loggingService = {
     channelNSFWUpdate: (oldChannel, newChannel, client) => sendChannelNSFWUpdate(oldChannel, newChannel, client),
     channelPinsUpdate: (channel, time, client) => sendChannelPinsUpdate(channel, time, client),
     channelPermissionsUpdate: (oldChannel, newChannel, client) => sendChannelPermissionsUpdate(oldChannel, newChannel, client),
+    // Emoji Return Functions
+    emojiCreate: (emoji, client) => sendEmojiCreate(emoji, client),
+    emojiDelete: (emoji, client) => sendEmojiDelete(emoji, client),
+    emojiNameUpdate: (oldEmoji, newEmoji, client) => sendEmojiNameUpdate(oldEmoji, newEmoji, client),
+    emojiRolesUpdate: (oldEmoji, newEmoji, client) => sendEmojiRolesUpdate(oldEmoji, newEmoji, client),
+    // Auto-Mod Return Functions
+    autoModRuleCreate: (rule, client) => sendAutoModRuleCreate(rule, client),
+    autoModRuleDelete: (rule, client) => sendAutoModRuleDelete(rule, client),
+    autoModRuleActionsUpdate: (oldRule, newRule, client) => sendAutoModRuleActionsUpdate(oldRule, newRule, client),
+    autoModRuleContentUpdate: (oldRule, newRule, client) => sendAutoModRuleContentUpdate(oldRule, newRule, client),
+    autoModRuleRolesUpdate: (oldRule, newRule, client) => sendAutoModRuleRolesUpdate(oldRule, newRule, client),
+    autoModRuleChannelsUpdate: (oldRule, newRule, client) => sendAutoModRuleChannelsUpdate(oldRule, newRule, client),
+    autoModRuleNameUpdate: (oldRule, newRule, client) => sendAutoModRuleNameUpdate(oldRule, newRule, client),
+    autoModRuleToggle: (oldRule, newRule, client) => sendAutoModRuleToggle(oldRule, newRule, client),
+    // Webhook Return Function
+    webhooksUpdate: (channel, client) => sendWebhooksUpdate(channel, client),
+    // Message Return Functions
+    messageDelete: (message, client) => sendMessageDelete(message, client),
+    messageBulkDelete: (messages, channel, client) => sendMessageBulkDelete(messages, channel, client),
+    messageEdit: (oldMessage, newMessage, client) => sendMessageEdit(oldMessage, newMessage, client),
+    messagePublish: (oldMessage, newMessage, client) => sendMessagePublish(oldMessage, newMessage, client),
+    messageCommand: (message, client) => sendMessageCommand(message, client),
+    // Invite Return Functions
+    inviteCreate: (channel, client) => sendInviteCreate(channel, client),
+    inviteDelete: (channel, client) => sendInviteDelete(channel, client),
+    // Event Return Functions
+    scheduledEventCreate: (event, client) => sendScheduledEventCreate(event, client),
+    scheduledEventDelete: (event, client) => sendScheduledEventDelete(event, client),
+    scheduledEventNameUpdate: (oldEvent, newEvent, client) => sendScheduledEventNameUpdate(oldEvent, newEvent, client),
+    scheduledEventDescriptionUpdate: (oldEvent, newEvent, client) => sendScheduledEventDescriptionUpdate(oldEvent, newEvent, client),
+    scheduledEventLocationUpdate: (oldEvent, newEvent, client) => sendScheduledEventLocationUpdate(oldEvent, newEvent, client),
+    scheduledEventPrivacyLevelUpdate: (oldEvent, newEvent, client) => sendScheduledEventPrivacyLevelUpdate(oldEvent, newEvent, client),
+    scheduledEventStartTimeUpdate: (oldEvent, newEvent, client) => sendScheduledEventStartTimeUpdate(oldEvent, newEvent, client),
+    scheduledEventEndTimeUpdate: (oldEvent, newEvent, client) => sendScheduledEventEndTimeUpdate(oldEvent, newEvent, client),
+    scheduledEventStatusUpdate: (oldEvent, newEvent, client) => sendScheduledEventStatusUpdate(oldEvent, newEvent, client),
+    scheduledEventImageUpdate: (oldEvent, newEvent, client) => sendScheduledEventImageUpdate(oldEvent, newEvent, client),
+    scheduledEventUserAdd: (event, user, client) => sendScheduledEventUserAdd(event, user, client),
+    scheduledEventUserRemove: (event, user, client) => sendScheduledEventUserRemove(event, user, client),
 };

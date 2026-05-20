@@ -2,13 +2,19 @@ import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
 import { canUseCommand } from '../services/permissionService.js';
 import { embedService } from '../services/embedService.js';
+import { loggingService } from '../services/loggingService.js';
 
 const cooldowns = new Map();
-const LOADING_EMOJI = '<a:loading:1498963770175783032>'; // replace with your loading emoji ID
+const LOADING_EMOJI = '<a:loading:1498963770175783032>';
 
 export default {
     name: 'messageCreate',
     async execute(message, client) {
+        if (message.interaction && message.guild) {
+            loggingService.messageCommand(message, client);
+            return;
+        }
+
         if (message.author.bot || !message.guild) return;
 
         const config = await getGuildConfig(message.guild.id, client);
@@ -97,6 +103,7 @@ export default {
 
         try {
             await command.execute(message, args, client);
+            loggingService.messageCommand(message, client);
 
             // Auto-delete command message
             if (settings?.autoDelete) {

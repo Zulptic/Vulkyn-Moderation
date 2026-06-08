@@ -59,9 +59,12 @@ export default {
 
         await interaction.deferReply({ flags: 64 });
 
-        await target.timeout(duration * 1000, reason);
+        const timeoutError = await target.timeout(duration * 1000, reason).then(() => null).catch(err => err);
+        if (timeoutError) {
+            return embedService.error(interaction, `Timeout failed: ${timeoutError.message}`);
+        }
 
-        const { infraction } = await logModAction(client, {
+        const logResult = await logModAction(client, {
             guildId: interaction.guild.id,
             action: 'timeout',
             moderatorId: interaction.user.id,
@@ -70,6 +73,12 @@ export default {
             duration,
             proof,
         });
+        const infraction = logResult?.infraction;
+
+        if (!infraction) {
+            await target.timeout(null, 'Timeout logging failed; rolling back').catch(() => {});
+            return embedService.error(interaction, 'Timeout failed because the infraction could not be recorded. The timeout was removed.');
+        }
 
         return embedService.modActionSuccess(interaction, {
             action: 'timeout',

@@ -41,7 +41,24 @@ export default {
 
         await interaction.deferReply({ flags: 64 });
 
-        const { infraction } = await logModAction(client, {
+        const banError = await interaction.guild.members.ban(target.id, {
+            reason,
+            deleteMessageSeconds: 86400,
+        }).then(() => null).catch(err => err);
+
+        if (banError) {
+            return embedService.error(interaction, `Softban failed during ban step: ${banError.message}`);
+        }
+
+        const unbanError = await interaction.guild.members.unban(target.id, 'softban — message purge complete')
+            .then(() => null)
+            .catch(err => err);
+
+        if (unbanError) {
+            return embedService.error(interaction, `Softban failed during unban step: ${unbanError.message}`);
+        }
+
+        const logResult = await logModAction(client, {
             guildId: interaction.guild.id,
             action: 'softban',
             moderatorId: interaction.user.id,
@@ -49,9 +66,11 @@ export default {
             reason,
             proof,
         });
+        const infraction = logResult?.infraction;
 
-        await interaction.guild.members.ban(target.id, { reason, deleteMessageSeconds: 86400 });
-        await interaction.guild.members.unban(target.id, 'softban — message purge complete');
+        if (!infraction) {
+            return embedService.error(interaction, 'Softban completed, but the infraction could not be recorded.');
+        }
 
         return embedService.modActionSuccess(interaction, {
             action: 'softban',

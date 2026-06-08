@@ -31,14 +31,17 @@ export default {
         const originalInfractionId = rows[0]?.id;
         const originalCaseNumber = rows[0]?.case_number;
 
-        await target.timeout(null, reason);
+        const untimeoutError = await target.timeout(null, reason).then(() => null).catch(err => err);
+        if (untimeoutError) {
+            return embedService.error(interaction, `Untimeout failed: ${untimeoutError.message}`);
+        }
 
         await client.db.query(
             `UPDATE infractions SET active = false WHERE guild_id = $1 AND user_id = $2 AND type = 'timeout' AND active = true`,
             [interaction.guild.id, target.id]
         );
 
-        await logModAction(client, {
+        const logResult = await logModAction(client, {
             guildId: interaction.guild.id,
             action: 'untimeout',
             moderatorId: interaction.user.id,
@@ -46,6 +49,10 @@ export default {
             reason,
             metadata: { infractionId: originalInfractionId },
         });
+
+        if (!logResult?.modAction) {
+            return embedService.error(interaction, 'Untimeout completed, but the moderation action could not be recorded.');
+        }
 
         return embedService.modActionSuccess(interaction, {
             action: 'untimeout',

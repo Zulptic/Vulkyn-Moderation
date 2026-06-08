@@ -59,9 +59,10 @@ export default {
             const punishErr = canPunishTarget(message.member, member);
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
-            await member.timeout(duration * 1000, reason);
+            const timeoutError = await member.timeout(duration * 1000, reason).then(() => null).catch(err => err);
+            if (timeoutError) { failed.push({ id, reason: `Discord timeout failed: ${timeoutError.message}` }); continue; }
 
-            const { infraction } = await logModAction(client, {
+            const logResult = await logModAction(client, {
                 guildId: message.guild.id,
                 action: 'timeout',
                 moderatorId: message.author.id,
@@ -70,6 +71,13 @@ export default {
                 duration,
                 proof,
             });
+            const infraction = logResult?.infraction;
+
+            if (!infraction) {
+                await member.timeout(null, 'Timeout logging failed; rolling back').catch(() => {});
+                failed.push({ id, reason: 'Infraction could not be recorded; timeout was rolled back' });
+                continue;
+            }
 
             actioned.push({ userId: member.id, caseNumber: infraction.case_number });
         }

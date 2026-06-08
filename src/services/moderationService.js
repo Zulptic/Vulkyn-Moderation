@@ -12,6 +12,7 @@ import { getGuildConfig } from './guildConfig.js';
 import { addScore } from './accountStatusService.js';
 
 const PUNISHMENT_TYPES = ['warn', 'mute', 'timeout', 'kick', 'ban', 'softban'];
+const FAILED_LOG_RESULT = { infraction: null, modAction: null };
 
 const DM_KEYS = {
     warn: 'dmOnWarn',
@@ -77,13 +78,15 @@ export async function logModAction(client, {
             proof,
             infraction,
             metadata,
+        }).catch(err => {
+            logger.warn('Failed to post moderation log message:', err);
         });
 
         return { infraction, modAction };
 
     } catch (err) {
         logger.error('Failed to log mod action:', err);
-        return null;
+        return { ...FAILED_LOG_RESULT };
     }
 }
 

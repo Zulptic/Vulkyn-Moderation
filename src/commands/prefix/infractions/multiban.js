@@ -47,7 +47,10 @@ export default {
             const punishErr = canPunishTarget(message.member, member);
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
-            const { infraction } = await logModAction(client, {
+            const banError = await message.guild.members.ban(id, { reason }).then(() => null).catch(err => err);
+            if (banError) { failed.push({ id, reason: `Discord ban failed: ${banError.message}` }); continue; }
+
+            const logResult = await logModAction(client, {
                 guildId: message.guild.id,
                 action: 'ban',
                 moderatorId: message.author.id,
@@ -55,8 +58,14 @@ export default {
                 reason,
                 proof,
             });
+            const infraction = logResult?.infraction;
 
-            await message.guild.members.ban(id, { reason });
+            if (!infraction) {
+                await message.guild.members.unban(id, 'Ban logging failed; rolling back').catch(() => {});
+                failed.push({ id, reason: 'Infraction could not be recorded; ban was rolled back' });
+                continue;
+            }
+
             actioned.push({ userId: user.id, caseNumber: infraction.case_number });
         }
 

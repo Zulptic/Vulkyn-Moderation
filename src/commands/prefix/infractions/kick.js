@@ -25,7 +25,12 @@ export default {
         }
         const reason = reasonArgs.join(' ') || 'No reason provided.';
 
-        const { infraction } = await logModAction(client, {
+        const kickError = await target.kick(reason).then(() => null).catch(err => err);
+        if (kickError) {
+            return embedService.error(message, `Kick failed: ${kickError.message}`);
+        }
+
+        const logResult = await logModAction(client, {
             guildId: message.guild.id,
             action: 'kick',
             moderatorId: message.author.id,
@@ -33,8 +38,11 @@ export default {
             reason,
             proof,
         });
+        const infraction = logResult?.infraction;
 
-        await target.kick(reason);
+        if (!infraction) {
+            return embedService.error(message, 'Kick completed, but the infraction could not be recorded.');
+        }
 
         return embedService.modActionSuccess(message, {
             action: 'kick',

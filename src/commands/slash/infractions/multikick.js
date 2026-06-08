@@ -45,7 +45,10 @@ export default {
             const punishErr = canPunishTarget(interaction.member, member);
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
-            const { infraction } = await logModAction(client, {
+            const kickError = await member.kick(reason).then(() => null).catch(err => err);
+            if (kickError) { failed.push({ id, reason: `Discord kick failed: ${kickError.message}` }); continue; }
+
+            const logResult = await logModAction(client, {
                 guildId: interaction.guild.id,
                 action: 'kick',
                 moderatorId: interaction.user.id,
@@ -53,8 +56,13 @@ export default {
                 reason,
                 proof,
             });
+            const infraction = logResult?.infraction;
 
-            await member.kick(reason);
+            if (!infraction) {
+                failed.push({ id, reason: 'Kicked, but infraction could not be recorded' });
+                continue;
+            }
+
             actioned.push({ userId: member.id, caseNumber: infraction.case_number });
         }
 

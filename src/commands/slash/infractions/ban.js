@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from "discord.js";
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { canPunishTarget } from "../../../services/permissionService.js";
+import { scheduleInfractionExpiry } from "../../../services/punishmentExpiry.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -80,7 +81,16 @@ export default {
 
         await interaction.deferReply({ flags: 64 });
 
-        const { infraction } = await logModAction(client, {
+        const banError = await interaction.guild.members.ban(target.id, {
+            reason,
+            deleteMessageSeconds,
+        }).then(() => null).catch(err => err);
+
+        if (banError) {
+            return embedService.error(interaction, `Ban failed: ${banError.message}`);
+        }
+
+        const logResult = await logModAction(client, {
             guildId: interaction.guild.id,
             action: 'ban',
             moderatorId: interaction.user.id,
@@ -92,11 +102,16 @@ export default {
                 deleteMessageSeconds,
             },
         });
+        const infraction = logResult?.infraction;
 
-        await interaction.guild.members.ban(target.id, {
-            reason,
-            deleteMessageSeconds,
-        });
+        if (!infraction) {
+            await interaction.guild.members.unban(target.id, 'Ban logging failed; rolling back').catch(() => {});
+            return embedService.error(interaction, 'Ban failed because the infraction could not be recorded. The user was unbanned.');
+        }
+
+        if (duration && infraction?.expires_at) {
+            scheduleInfractionExpiry(client, infraction);
+        }
 
         return embedService.modActionSuccess(interaction, {
             action: 'ban',

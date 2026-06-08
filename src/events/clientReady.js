@@ -1,6 +1,5 @@
 import { logger } from '../utils/logger.js';
-import { startMuteExpiry } from '../services/muteExpiry.js';
-import { startBanExpiry } from '../services/banExpiry.js';
+import { startPunishmentExpiryScheduler } from '../services/punishmentExpiry.js';
 import { startAccountStatusRefresh } from '../services/accountStatusService.js';
 
 export default {
@@ -13,8 +12,7 @@ export default {
             await client.syncGuildCommands(guildId, client);
         }
 
-        startMuteExpiry(client);
-        startBanExpiry(client);
+        startPunishmentExpiryScheduler(client);
         startAccountStatusRefresh(client);
     },
 };

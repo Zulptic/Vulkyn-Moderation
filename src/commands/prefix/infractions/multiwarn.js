@@ -44,7 +44,7 @@ export default {
             const punishErr = canPunishTarget(message.member, targetMember);
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
-            const { infraction } = await logModAction(client, {
+            const logResult = await logModAction(client, {
                 guildId: message.guild.id,
                 action: 'warn',
                 moderatorId: message.author.id,
@@ -52,6 +52,12 @@ export default {
                 reason,
                 proof,
             });
+            const infraction = logResult?.infraction;
+
+            if (!infraction) {
+                failed.push({ id, reason: 'Infraction could not be recorded' });
+                continue;
+            }
 
             actioned.push({ userId: user.id, caseNumber: infraction.case_number });
         }

@@ -30,7 +30,7 @@ export default {
 
         await interaction.deferReply({ flags: 64 });
 
-        const { infraction } = await logModAction(client, {
+        const logResult = await logModAction(client, {
             guildId: interaction.guild.id,
             action: 'warn',
             moderatorId: interaction.user.id,
@@ -38,6 +38,11 @@ export default {
             reason,
             proof,
         });
+        const infraction = logResult?.infraction;
+
+        if (!infraction) {
+            return embedService.error(interaction, 'Warn failed because the infraction could not be recorded.');
+        }
 
         return embedService.modActionSuccess(interaction, {
             action: 'warn',

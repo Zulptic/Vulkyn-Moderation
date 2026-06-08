@@ -2,6 +2,7 @@ import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
 import { getGuildConfig } from '../../../services/guildConfig.js';
 import { canPunishTarget } from '../../../services/permissionService.js';
+import { scheduleInfractionExpiry } from '../../../services/punishmentExpiry.js';
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -71,9 +72,10 @@ export default {
             const punishErr = canPunishTarget(message.member, member);
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
-            await member.roles.add(muteRole, reason);
+            const muteError = await member.roles.add(muteRole, reason).then(() => null).catch(err => err);
+            if (muteError) { failed.push({ id, reason: `Discord mute failed: ${muteError.message}` }); continue; }
 
-            const { infraction } = await logModAction(client, {
+            const logResult = await logModAction(client, {
                 guildId: message.guild.id,
                 action: 'mute',
                 moderatorId: message.author.id,
@@ -82,6 +84,17 @@ export default {
                 duration,
                 proof,
             });
+            const infraction = logResult?.infraction;
+
+            if (!infraction) {
+                await member.roles.remove(muteRole, 'Mute logging failed; rolling back').catch(() => {});
+                failed.push({ id, reason: 'Infraction could not be recorded; mute was rolled back' });
+                continue;
+            }
+
+            if (duration && infraction.expires_at) {
+                scheduleInfractionExpiry(client, infraction);
+            }
 
             actioned.push({ userId: member.id, caseNumber: infraction.case_number });
         }

@@ -29,7 +29,24 @@ export default {
         }
         const reason = reasonArgs.join(' ') || 'No reason provided';
 
-        const { infraction } = await logModAction(client, {
+        const banError = await message.guild.members.ban(target.id, {
+            reason,
+            deleteMessageSeconds: 86400,
+        }).then(() => null).catch(err => err);
+
+        if (banError) {
+            return embedService.error(message, `Softban failed during ban step: ${banError.message}`);
+        }
+
+        const unbanError = await message.guild.members.unban(target.id, 'softban — message purge complete')
+            .then(() => null)
+            .catch(err => err);
+
+        if (unbanError) {
+            return embedService.error(message, `Softban failed during unban step: ${unbanError.message}`);
+        }
+
+        const logResult = await logModAction(client, {
             guildId: message.guild.id,
             action: 'softban',
             moderatorId: message.author.id,
@@ -37,9 +54,11 @@ export default {
             reason,
             proof,
         });
+        const infraction = logResult?.infraction;
 
-        await message.guild.members.ban(target.id, { reason, deleteMessageSeconds: 86400 });
-        await message.guild.members.unban(target.id, 'softban — message purge complete');
+        if (!infraction) {
+            return embedService.error(message, 'Softban completed, but the infraction could not be recorded.');
+        }
 
         return embedService.modActionSuccess(message, {
             action: 'softban',

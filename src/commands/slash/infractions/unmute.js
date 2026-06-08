@@ -37,14 +37,17 @@ export default {
 
         await interaction.deferReply({ flags: 64 });
 
-        await target.roles.remove(muteRoleId, reason);
+        const unmuteError = await target.roles.remove(muteRoleId, reason).then(() => null).catch(err => err);
+        if (unmuteError) {
+            return embedService.error(interaction, `Unmute failed: ${unmuteError.message}`);
+        }
 
         await client.db.query(
             `UPDATE infractions SET active = false WHERE guild_id = $1 AND user_id = $2 AND type = 'mute' AND active = true`,
             [interaction.guild.id, target.id]
         );
 
-        await logModAction(client, {
+        const logResult = await logModAction(client, {
             guildId: interaction.guild.id,
             action: 'unmute',
             moderatorId: interaction.user.id,
@@ -52,6 +55,10 @@ export default {
             reason,
             metadata: { infractionId: originalInfractionId },
         });
+
+        if (!logResult?.modAction) {
+            return embedService.error(interaction, 'Unmute completed, but the moderation action could not be recorded.');
+        }
 
         return embedService.modActionSuccess(interaction, {
             action: 'unmute',

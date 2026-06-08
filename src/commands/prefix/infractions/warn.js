@@ -27,7 +27,7 @@ export default {
         }
         const reason = reasonArgs.join(' ') || 'No reason provided';
 
-        const { infraction } = await logModAction(client, {
+        const logResult = await logModAction(client, {
             guildId: message.guild.id,
             action: 'warn',
             moderatorId: message.author.id,
@@ -35,6 +35,11 @@ export default {
             reason,
             proof,
         });
+        const infraction = logResult?.infraction;
+
+        if (!infraction) {
+            return embedService.error(message, 'Warn failed because the infraction could not be recorded.');
+        }
 
         return embedService.modActionSuccess(message, {
             action: 'warn',

@@ -2,6 +2,7 @@ import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { getGuildConfig } from "../../../services/guildConfig.js";
 import { canPunishTarget } from "../../../services/permissionService.js";
+import { scheduleInfractionExpiry } from "../../../services/punishmentExpiry.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -70,9 +71,12 @@ export default {
         }
         const reason = reasonArgs.join(' ') || 'No reason provided';
 
-        await target.roles.add(muteRole, reason);
+        const muteError = await target.roles.add(muteRole, reason).then(() => null).catch(err => err);
+        if (muteError) {
+            return embedService.error(message, `Mute failed: ${muteError.message}`);
+        }
 
-        const { infraction } = await logModAction(client, {
+        const logResult = await logModAction(client, {
             guildId: message.guild.id,
             action: 'mute',
             moderatorId: message.author.id,
@@ -81,6 +85,16 @@ export default {
             duration,
             proof,
         });
+        const infraction = logResult?.infraction;
+
+        if (!infraction) {
+            await target.roles.remove(muteRole, 'Mute logging failed; rolling back').catch(() => {});
+            return embedService.error(message, 'Mute failed because the infraction could not be recorded. The mute role was removed.');
+        }
+
+        if (duration && infraction?.expires_at) {
+            scheduleInfractionExpiry(client, infraction);
+        }
 
         return embedService.modActionSuccess(message, {
             action: 'mute',

@@ -38,7 +38,12 @@ export default {
 
         await interaction.deferReply({ flags: 64 });
 
-        const { infraction } = await logModAction(client, {
+        const kickError = await target.kick(reason).then(() => null).catch(err => err);
+        if (kickError) {
+            return embedService.error(interaction, `Kick failed: ${kickError.message}`);
+        }
+
+        const logResult = await logModAction(client, {
             guildId: interaction.guild.id,
             action: 'kick',
             moderatorId: interaction.user.id,
@@ -46,8 +51,11 @@ export default {
             reason,
             proof,
         });
+        const infraction = logResult?.infraction;
 
-        await target.kick(reason);
+        if (!infraction) {
+            return embedService.error(interaction, 'Kick completed, but the infraction could not be recorded.');
+        }
 
         return embedService.modActionSuccess(interaction, {
             action: 'kick',

@@ -10,6 +10,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
 import { addScore } from './accountStatusService.js';
+import { shouldIgnoreLog } from './loggingService.js';
 
 const PUNISHMENT_TYPES = ['warn', 'mute', 'timeout', 'kick', 'ban', 'softban'];
 const FAILED_LOG_RESULT = { infraction: null, modAction: null };
@@ -212,7 +213,22 @@ async function postUnifiedModLog(client, {
 
     const logKey = actionToLogKey[action];
     const modLogging = config.logging.moderation || {};
-    const channelId = modLogging[logKey] || modLogging.categoryChannel;
+    const destinationConfig = modLogging[logKey];
+    const eventConfig = modLogging.eventIgnores?.[logKey]
+        ?? (destinationConfig && typeof destinationConfig === 'object' ? destinationConfig : {});
+
+    if (await shouldIgnoreLog(
+        client,
+        guildId,
+        config.logging,
+        modLogging,
+        eventConfig,
+        { userIds: [moderatorId, targetId] }
+    )) return;
+
+    const channelId = typeof destinationConfig === 'string'
+        ? destinationConfig
+        : destinationConfig?.channelId ?? modLogging.categoryChannel;
     if (!channelId) return;
 
     const channel = client.channels.cache.get(channelId);

@@ -58,6 +58,34 @@ Each guild gets a config stored as JSONB in PostgreSQL. Default config on join:
 - **`prefix`** — The prefix for prefix commands. Default is `!`.
 - **`disabledCommands`** — Array of command names to exclude from the slash command registry (e.g. `["hi", "mute"]`).
 
+### Logging ignore filters
+
+Logging filters can be configured globally, for a logging category, or for one
+event. A log is suppressed when its source channel or relevant member matches
+any configured level.
+
+```json
+{
+  "logging": {
+    "ignoredChannels": ["GLOBAL_CHANNEL_ID"],
+    "ignoredRoles": ["GLOBAL_ROLE_ID"],
+    "messages": {
+      "ignoredChannels": ["MESSAGE_CATEGORY_CHANNEL_ID"],
+      "ignoredRoles": ["MESSAGE_CATEGORY_ROLE_ID"],
+      "eventIgnores": {
+        "messageDelete": {
+          "ignoredChannels": ["MESSAGE_DELETE_CHANNEL_ID"],
+          "ignoredRoles": ["MESSAGE_DELETE_ROLE_ID"]
+        }
+      }
+    }
+  }
+}
+```
+
+Destination fields such as `logging.messages.messageDelete` and
+`logging.messages.categoryChannel` remain unchanged.
+
 ## Prerequisites
 
 - Node.js 22.12.0+

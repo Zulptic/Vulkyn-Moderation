@@ -76,13 +76,78 @@ async function fetchAuditEntry(client, guildId, type) {
     }
 }
 
-async function sendToLog(client, guildId, category, event, container) {
+function asIdSet(...values) {
+    return new Set(
+        values
+            .flat(Infinity)
+            .filter(Boolean)
+            .map(String)
+    );
+}
+
+export async function shouldIgnoreLog(client, guildId, loggingConfig, categoryConfig, eventConfig, context = {}) {
+    const ignoredChannelIds = asIdSet(
+        loggingConfig.ignoredChannels,
+        categoryConfig?.ignoredChannels,
+        eventConfig?.ignoredChannels
+    );
+    const sourceChannelIds = asIdSet(context.channelIds);
+
+    if ([...sourceChannelIds].some(id => ignoredChannelIds.has(id))) {
+        return true;
+    }
+
+    const ignoredRoleIds = asIdSet(
+        loggingConfig.ignoredRoles,
+        categoryConfig?.ignoredRoles,
+        eventConfig?.ignoredRoles
+    );
+    if (!ignoredRoleIds.size) return false;
+
+    const sourceRoleIds = asIdSet(context.roleIds);
+    if ([...sourceRoleIds].some(id => ignoredRoleIds.has(id))) {
+        return true;
+    }
+
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return false;
+
+    for (const userId of asIdSet(context.userIds)) {
+        const member = guild.members.cache.get(userId)
+            ?? await guild.members.fetch(userId).catch(() => null);
+
+        if (member?.roles.cache.some(role => ignoredRoleIds.has(role.id))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+async function sendToLog(client, guildId, category, event, container, context = {}) {
     try {
         const config = await getGuildConfig(guildId, client);
         if (!config?.logging?.enabled) return;
 
         const categoryConfig = config.logging[category];
-        const channelId = categoryConfig?.[event] ?? categoryConfig?.categoryChannel;
+        if (!categoryConfig) return;
+
+        const destinationConfig = categoryConfig[event];
+        const eventConfig = categoryConfig.eventIgnores?.[event]
+            ?? (destinationConfig && typeof destinationConfig === 'object' ? destinationConfig : {});
+
+        if (await shouldIgnoreLog(
+            client,
+            guildId,
+            config.logging,
+            categoryConfig,
+            eventConfig,
+            context
+        )) return;
+
+        const channelId = typeof destinationConfig === 'string'
+            ? destinationConfig
+            : destinationConfig?.channelId ?? categoryConfig.categoryChannel;
         if (!channelId) return;
 
         const channel = client.channels.cache.get(channelId);
@@ -134,7 +199,9 @@ async function sendIntegrationCreate({ id, name, type, guildId, iconURL }, clien
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'applications', 'integrationCreate', container);
+    await sendToLog(client, guildId, 'applications', 'integrationCreate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendIntegrationDelete({ id, guildId }, client) {
@@ -162,7 +229,9 @@ async function sendIntegrationDelete({ id, guildId }, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'applications', 'integrationDelete', container);
+    await sendToLog(client, guildId, 'applications', 'integrationDelete', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendApplicationCommandPermissionsUpdate(data, client) {
@@ -253,7 +322,10 @@ async function sendCategoryCreate(channel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, channel.guild.id, 'channels', 'categoryCreate', container);
+    await sendToLog(client, channel.guild.id, 'channels', 'categoryCreate', container, {
+        channelIds: [channel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendCategoryDelete(channel, client) {
@@ -277,7 +349,10 @@ async function sendCategoryDelete(channel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, channel.guild.id, 'channels', 'categoryDelete', container);
+    await sendToLog(client, channel.guild.id, 'channels', 'categoryDelete', container, {
+        channelIds: [channel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelCreate(channel, client) {
@@ -307,7 +382,10 @@ async function sendChannelCreate(channel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, channel.guild.id, 'channels', 'channelCreate', container);
+    await sendToLog(client, channel.guild.id, 'channels', 'channelCreate', container, {
+        channelIds: [channel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelNameUpdate(oldChannel, newChannel, client) {
@@ -334,7 +412,10 @@ async function sendChannelNameUpdate(oldChannel, newChannel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelNameUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelNameUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelParentUpdate(oldChannel, newChannel, client) {
@@ -364,7 +445,10 @@ async function sendChannelParentUpdate(oldChannel, newChannel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelParentUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelParentUpdate', container, {
+        channelIds: [newChannel.id, oldChannel.parentId, newChannel.parentId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelNSFWUpdate(oldChannel, newChannel, client) {
@@ -391,7 +475,10 @@ async function sendChannelNSFWUpdate(oldChannel, newChannel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelNSFWUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelNSFWUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelTopicUpdate(oldChannel, newChannel, client) {
@@ -421,7 +508,10 @@ async function sendChannelTopicUpdate(oldChannel, newChannel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelTopicUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelTopicUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelTypeUpdate(oldChannel, newChannel, client) {
@@ -441,7 +531,10 @@ async function sendChannelTypeUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelTypeUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelTypeUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelBitrateUpdate(oldChannel, newChannel, client) {
@@ -459,7 +552,10 @@ async function sendChannelBitrateUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelBitrateUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelBitrateUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelUserLimitUpdate(oldChannel, newChannel, client) {
@@ -478,7 +574,10 @@ async function sendChannelUserLimitUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelUserLimitUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelUserLimitUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelSlowModeUpdate(oldChannel, newChannel, client) {
@@ -497,7 +596,10 @@ async function sendChannelSlowModeUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelSlowModeUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelSlowModeUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelRTCRegionUpdate(oldChannel, newChannel, client) {
@@ -516,7 +618,10 @@ async function sendChannelRTCRegionUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelRTCRegionUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelRTCRegionUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelVideoQualityUpdate(oldChannel, newChannel, client) {
@@ -535,7 +640,10 @@ async function sendChannelVideoQualityUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelVideoQualityUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelVideoQualityUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelDefaultArchiveDurationUpdate(oldChannel, newChannel, client) {
@@ -554,7 +662,10 @@ async function sendChannelDefaultArchiveDurationUpdate(oldChannel, newChannel, c
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultArchiveDurationUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultArchiveDurationUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelDefaultThreadSlowModeUpdate(oldChannel, newChannel, client) {
@@ -573,7 +684,10 @@ async function sendChannelDefaultThreadSlowModeUpdate(oldChannel, newChannel, cl
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultThreadSlowModeUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultThreadSlowModeUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelDefaultReactionEmojiUpdate(oldChannel, newChannel, client) {
@@ -592,7 +706,10 @@ async function sendChannelDefaultReactionEmojiUpdate(oldChannel, newChannel, cli
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultReactionEmojiUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultReactionEmojiUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelDefaultSortOrderUpdate(oldChannel, newChannel, client) {
@@ -611,7 +728,10 @@ async function sendChannelDefaultSortOrderUpdate(oldChannel, newChannel, client)
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultSortOrderUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelDefaultSortOrderUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelForumTagsUpdate(oldChannel, newChannel, client) {
@@ -640,7 +760,10 @@ async function sendChannelForumTagsUpdate(oldChannel, newChannel, client) {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(detailLines.join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelForumTagsUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelForumTagsUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelForumLayoutUpdate(oldChannel, newChannel, client) {
@@ -659,7 +782,10 @@ async function sendChannelForumLayoutUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelForumLayoutUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelForumLayoutUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelVoiceStatusUpdate(oldChannel, newChannel, client) {
@@ -675,7 +801,10 @@ async function sendChannelVoiceStatusUpdate(oldChannel, newChannel, client) {
         ].join('\n')))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(null)));
-    await sendToLog(client, newChannel.guild.id, 'channels', 'channelVoiceStatusUpdate', container);
+    await sendToLog(client, newChannel.guild.id, 'channels', 'channelVoiceStatusUpdate', container, {
+        channelIds: [newChannel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelPinsUpdate(channel, time, client) {
@@ -733,7 +862,10 @@ async function sendChannelPinsUpdate(channel, time, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, channel.guild.id, 'channels', 'channelPinsUpdate', container);
+    await sendToLog(client, channel.guild.id, 'channels', 'channelPinsUpdate', container, {
+        channelIds: [channel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendChannelPermissionsUpdate(oldChannel, newChannel, client) {
@@ -818,7 +950,10 @@ async function sendChannelPermissionsUpdate(oldChannel, newChannel, client) {
             .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-        await sendToLog(client, newChannel.guild.id, 'channels', 'channelPermissionsUpdate', container);
+        await sendToLog(client, newChannel.guild.id, 'channels', 'channelPermissionsUpdate', container, {
+            channelIds: [newChannel.id],
+            userIds: [executor?.id],
+        });
     }
 }
 
@@ -846,7 +981,10 @@ async function sendChannelDelete(channel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, channel.guild.id, 'channels', 'channelDelete', container);
+    await sendToLog(client, channel.guild.id, 'channels', 'channelDelete', container, {
+        channelIds: [channel.id],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendEmojiCreate(emoji, client) {
@@ -883,7 +1021,9 @@ async function sendEmojiCreate(emoji, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, emoji.guild.id, 'emojis', 'emojiCreate', container);
+    await sendToLog(client, emoji.guild.id, 'emojis', 'emojiCreate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendEmojiDelete(emoji, client) {
@@ -915,7 +1055,9 @@ async function sendEmojiDelete(emoji, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, emoji.guild.id, 'emojis', 'emojiDelete', container);
+    await sendToLog(client, emoji.guild.id, 'emojis', 'emojiDelete', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendEmojiNameUpdate(oldEmoji, newEmoji, client) {
@@ -946,7 +1088,9 @@ async function sendEmojiNameUpdate(oldEmoji, newEmoji, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEmoji.guild.id, 'emojis', 'emojiNameUpdate', container);
+    await sendToLog(client, newEmoji.guild.id, 'emojis', 'emojiNameUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendEmojiRolesUpdate(oldEmoji, newEmoji, client) {
@@ -986,7 +1130,9 @@ async function sendEmojiRolesUpdate(oldEmoji, newEmoji, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEmoji.guild.id, 'emojis', 'emojiRolesUpdate', container);
+    await sendToLog(client, newEmoji.guild.id, 'emojis', 'emojiRolesUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleCreate(rule, client) {
@@ -1033,7 +1179,9 @@ async function sendAutoModRuleCreate(rule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleCreate', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleCreate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleDelete(rule, client) {
@@ -1080,7 +1228,9 @@ async function sendAutoModRuleDelete(rule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleDelete', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleDelete', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleActionsUpdate(oldRule, newRule, client) {
@@ -1110,7 +1260,9 @@ async function sendAutoModRuleActionsUpdate(oldRule, newRule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleActionsUpdate', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleActionsUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleContentUpdate(oldRule, newRule, client) {
@@ -1163,7 +1315,9 @@ async function sendAutoModRuleContentUpdate(oldRule, newRule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleContentUpdate', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleContentUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleRolesUpdate(oldRule, newRule, client) {
@@ -1192,7 +1346,9 @@ async function sendAutoModRuleRolesUpdate(oldRule, newRule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleRolesUpdate', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleRolesUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleChannelsUpdate(oldRule, newRule, client) {
@@ -1223,7 +1379,9 @@ async function sendAutoModRuleChannelsUpdate(oldRule, newRule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleChannelsUpdate', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleChannelsUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleNameUpdate(oldRule, newRule, client) {
@@ -1244,7 +1402,9 @@ async function sendAutoModRuleNameUpdate(oldRule, newRule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleNameUpdate', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleNameUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendAutoModRuleToggle(oldRule, newRule, client) {
@@ -1266,7 +1426,9 @@ async function sendAutoModRuleToggle(oldRule, newRule, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleToggle', container);
+    await sendToLog(client, guildId, 'discordAutoMod', 'autoModRuleToggle', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendWebhookCreate(entry, guildId, client) {
@@ -1303,7 +1465,10 @@ async function sendWebhookCreate(entry, guildId, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'webhooks', 'webhookCreate', container);
+    await sendToLog(client, guildId, 'webhooks', 'webhookCreate', container, {
+        channelIds: [channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendWebhookDelete(entry, guildId, client) {
@@ -1324,7 +1489,10 @@ async function sendWebhookDelete(entry, guildId, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'webhooks', 'webhookDelete', container);
+    await sendToLog(client, guildId, 'webhooks', 'webhookDelete', container, {
+        channelIds: [channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendWebhookNameUpdate(entry, guildId, client) {
@@ -1346,7 +1514,10 @@ async function sendWebhookNameUpdate(entry, guildId, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'webhooks', 'webhookNameUpdate', container);
+    await sendToLog(client, guildId, 'webhooks', 'webhookNameUpdate', container, {
+        channelIds: [channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendWebhookAvatarUpdate(entry, guildId, client) {
@@ -1380,7 +1551,9 @@ async function sendWebhookAvatarUpdate(entry, guildId, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'webhooks', 'webhookAvatarUpdate', container);
+    await sendToLog(client, guildId, 'webhooks', 'webhookAvatarUpdate', container, {
+        userIds: [executor?.id],
+    });
 }
 
 async function sendWebhookChannelUpdate(entry, guildId, client) {
@@ -1402,7 +1575,10 @@ async function sendWebhookChannelUpdate(entry, guildId, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'webhooks', 'webhookChannelUpdate', container);
+    await sendToLog(client, guildId, 'webhooks', 'webhookChannelUpdate', container, {
+        channelIds: [oldChannelId, newChannelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendWebhooksUpdate(channel, client) {
@@ -1463,7 +1639,10 @@ async function sendInviteCreate(invite, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, invite.guild.id, 'invites', 'inviteCreate', container)
+    await sendToLog(client, invite.guild.id, 'invites', 'inviteCreate', container, {
+        channelIds: [invite.channel?.id],
+        userIds: [invite.inviter?.id, executor?.id],
+    });
 }
 
 async function sendInviteDelete(invite, client) {
@@ -1486,7 +1665,10 @@ async function sendInviteDelete(invite, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, invite.guild.id, 'invites', 'inviteDelete', container);
+    await sendToLog(client, invite.guild.id, 'invites', 'inviteDelete', container, {
+        channelIds: [invite.channel?.id],
+        userIds: [invite.inviter?.id, executor?.id],
+    });
 }
 
 async function sendScheduledEventCreate(event, client) {
@@ -1527,7 +1709,10 @@ async function sendScheduledEventCreate(event, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, event.guildId, 'events', 'scheduledEventCreate', container);
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventCreate', container, {
+        channelIds: [event.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventDelete(event, client) {
@@ -1549,7 +1734,10 @@ async function sendScheduledEventDelete(event, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, event.guildId, 'events', 'scheduledEventDelete', container);
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventDelete', container, {
+        channelIds: [event.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventNameUpdate(oldEvent, newEvent, client) {
@@ -1567,7 +1755,10 @@ async function sendScheduledEventNameUpdate(oldEvent, newEvent, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventNameUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventNameUpdate', container, {
+        channelIds: [newEvent.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventDescriptionUpdate(oldEvent, newEvent, client) {
@@ -1586,7 +1777,10 @@ async function sendScheduledEventDescriptionUpdate(oldEvent, newEvent, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventDescriptionUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventDescriptionUpdate', container, {
+        channelIds: [newEvent.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventLocationUpdate(oldEvent, newEvent, client) {
@@ -1605,7 +1799,10 @@ async function sendScheduledEventLocationUpdate(oldEvent, newEvent, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventLocationUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventLocationUpdate', container, {
+        channelIds: [oldEvent.channelId, newEvent.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventPrivacyLevelUpdate(oldEvent, newEvent, client) {
@@ -1626,7 +1823,10 @@ async function sendScheduledEventPrivacyLevelUpdate(oldEvent, newEvent, client) 
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventPrivacyLevelUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventPrivacyLevelUpdate', container, {
+        channelIds: [newEvent.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventStartTimeUpdate(oldEvent, newEvent, client) {
@@ -1647,7 +1847,10 @@ async function sendScheduledEventStartTimeUpdate(oldEvent, newEvent, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventStartTimeUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventStartTimeUpdate', container, {
+        channelIds: [newEvent.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventEndTimeUpdate(oldEvent, newEvent, client) {
@@ -1668,7 +1871,10 @@ async function sendScheduledEventEndTimeUpdate(oldEvent, newEvent, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventEndTimeUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventEndTimeUpdate', container, {
+        channelIds: [newEvent.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventStatusUpdate(oldEvent, newEvent, client) {
@@ -1684,7 +1890,9 @@ async function sendScheduledEventStatusUpdate(oldEvent, newEvent, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventStatusUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventStatusUpdate', container, {
+        channelIds: [newEvent.channelId],
+    });
 }
 
 async function sendScheduledEventImageUpdate(oldEvent, newEvent, client) {
@@ -1721,7 +1929,10 @@ async function sendScheduledEventImageUpdate(oldEvent, newEvent, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventImageUpdate', container);
+    await sendToLog(client, newEvent.guildId, 'events', 'scheduledEventImageUpdate', container, {
+        channelIds: [newEvent.channelId],
+        userIds: [executor?.id],
+    });
 }
 
 async function sendScheduledEventUserAdd(event, user, client) {
@@ -1738,7 +1949,10 @@ async function sendScheduledEventUserAdd(event, user, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
 
-    await sendToLog(client, event.guildId, 'events', 'scheduledEventUserAdd', container);
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventUserAdd', container, {
+        channelIds: [event.channelId],
+        userIds: [user.id],
+    });
 }
 
 async function sendScheduledEventUserRemove(event, user, client) {
@@ -1755,7 +1969,10 @@ async function sendScheduledEventUserRemove(event, user, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
 
-    await sendToLog(client, event.guildId, 'events', 'scheduledEventUserRemove', container);
+    await sendToLog(client, event.guildId, 'events', 'scheduledEventUserRemove', container, {
+        channelIds: [event.channelId],
+        userIds: [user.id],
+    });
 }
 
 function truncate(str, max = 1000) {
@@ -1787,7 +2004,11 @@ async function sendMessageDelete(message, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'messages', 'messageDelete', container);
+    await sendToLog(client, guildId, 'messages', 'messageDelete', container, {
+        channelIds: [message.channelId],
+        userIds: [author?.id, executor?.id],
+        roleIds: message.member ? [...message.member.roles.cache.keys()] : [],
+    });
 }
 
 async function sendMessageBulkDelete(messages, channel, client) {
@@ -1808,7 +2029,16 @@ async function sendMessageBulkDelete(messages, channel, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer(executor)));
 
-    await sendToLog(client, guildId, 'messages', 'messageBulkDelete', container);
+    await sendToLog(client, guildId, 'messages', 'messageBulkDelete', container, {
+        channelIds: [channel.id],
+        userIds: [
+            executor?.id,
+            ...[...messages.values()].map(message => message.author?.id).filter(Boolean),
+        ],
+        roleIds: [...messages.values()].flatMap(message =>
+            message.member ? [...message.member.roles.cache.keys()] : []
+        ),
+    });
 }
 
 async function sendMessageEdit(oldMessage, newMessage, client) {
@@ -1831,7 +2061,11 @@ async function sendMessageEdit(oldMessage, newMessage, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
 
-    await sendToLog(client, guildId, 'messages', 'messageEdit', container);
+    await sendToLog(client, guildId, 'messages', 'messageEdit', container, {
+        channelIds: [newMessage.channelId],
+        userIds: [newMessage.author?.id],
+        roleIds: newMessage.member ? [...newMessage.member.roles.cache.keys()] : [],
+    });
 }
 
 async function sendMessagePublish(oldMessage, newMessage, client) {
@@ -1853,7 +2087,11 @@ async function sendMessagePublish(oldMessage, newMessage, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
 
-    await sendToLog(client, guildId, 'messages', 'messagePublish', container);
+    await sendToLog(client, guildId, 'messages', 'messagePublish', container, {
+        channelIds: [newMessage.channelId],
+        userIds: [newMessage.author?.id],
+        roleIds: newMessage.member ? [...newMessage.member.roles.cache.keys()] : [],
+    });
 }
 
 async function sendMessageCommand(message, client) {
@@ -1879,7 +2117,11 @@ async function sendMessageCommand(message, client) {
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(footer()));
 
-    await sendToLog(client, guildId, 'messages', 'messageCommand', container);
+    await sendToLog(client, guildId, 'messages', 'messageCommand', container, {
+        channelIds: [message.channelId],
+        userIds: [user.id],
+        roleIds: message.member ? [...message.member.roles.cache.keys()] : [],
+    });
 }
 
 export const loggingService = {

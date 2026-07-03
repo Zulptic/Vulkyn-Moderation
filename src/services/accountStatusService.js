@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
+import { errorService } from './errorService.js';
 
 const SCORED_ACTIONS = new Set(['warn', 'mute', 'timeout', 'kick', 'ban', 'softban']);
 const STALE_THRESHOLD_INTERVAL = '5 minutes';
@@ -102,6 +103,12 @@ export async function addScore(client, guildId, userId, action) {
         }
     } catch (err) {
         logger.error(`Account status update failed for ${userId} in ${guildId}:`, err);
+        await errorService.error(client, err, {
+            guildId,
+            source: 'account-status-service',
+            operation: 'add-score',
+            context: { userId, action },
+        });
     }
 }
 
@@ -117,6 +124,26 @@ async function processThreshold(client, guildId, userId, asConfig) {
     } catch (err) {
         await markThresholdFailed(client, guildId, userId, err);
         logger.error(`Threshold action failed for ${userId} in ${guildId}:`, err);
+
+        if (['No mute role configured', 'Configured mute role is unavailable'].includes(err?.message)) {
+            await errorService.warning(client, {
+                guildId,
+                code: err.message === 'No mute role configured'
+                    ? 'MUTE_ROLE_NOT_CONFIGURED'
+                    : 'MUTE_ROLE_UNAVAILABLE',
+                source: 'account-status-service',
+                operation: 'threshold-action',
+                message: err.message,
+                context: { userId, action },
+            });
+        } else {
+            await errorService.error(client, err, {
+                guildId,
+                source: 'account-status-service',
+                operation: 'threshold-action',
+                context: { userId, action },
+            });
+        }
         return false;
     }
 
@@ -128,6 +155,12 @@ async function processThreshold(client, guildId, userId, asConfig) {
     } catch (err) {
         await markThresholdLoggingFailed(client, guildId, userId, claimedScore, err);
         logger.error(`Threshold action logging failed for ${userId} in ${guildId}:`, err);
+        await errorService.error(client, err, {
+            guildId,
+            source: 'account-status-service',
+            operation: 'threshold-logging',
+            context: { userId, action, claimedScore },
+        });
         return false;
     }
 
@@ -208,6 +241,7 @@ async function performThresholdAction(client, guildId, userId, score, action, as
         const config = await getGuildConfig(guildId, client);
         const muteRoleId = config?.muteRoleId;
         if (!muteRoleId) throw new Error('No mute role configured');
+        if (!guild.roles.cache.has(muteRoleId)) throw new Error('Configured mute role is unavailable');
         if (!member) throw new Error('User is not in the server');
         await member.roles.add(muteRoleId, reason);
         return;
@@ -316,9 +350,15 @@ async function postConfiguredThresholdAlert(client, userId, score, asConfig) {
     const channel = client.channels.cache.get(asConfig.notifyChannelId);
     if (!channel) return;
 
-    await postThresholdAlert(client, channel, userId, score, asConfig).catch(err =>
-        logger.warn(`Account status threshold alert failed for ${userId}:`, err)
-    );
+    await postThresholdAlert(client, channel, userId, score, asConfig).catch(async err => {
+        logger.warn(`Account status threshold alert failed for ${userId}:`, err);
+        await errorService.error(client, err, {
+            guildId: channel.guildId,
+            source: 'account-status-service',
+            operation: 'send-threshold-alert',
+            context: { userId, channelId: channel.id },
+        });
+    });
 }
 
 async function retryDueThresholds(client) {
@@ -400,6 +440,12 @@ async function repairThresholdLog(client, guildId, userId, asConfig) {
     } catch (err) {
         await markThresholdLogRepairFailed(client, guildId, userId, err);
         logger.error(`Threshold action log repair failed for ${userId} in ${guildId}:`, err);
+        await errorService.error(client, err, {
+            guildId,
+            source: 'account-status-service',
+            operation: 'repair-threshold-log',
+            context: { userId, action, claimedScore },
+        });
         return false;
     }
 }

@@ -3,6 +3,7 @@ import { getGuildConfig } from '../services/guildConfig.js';
 import { canUseCommand } from '../services/permissionService.js';
 import { embedService } from '../services/embedService.js';
 import { loggingService } from '../services/loggingService.js';
+import { errorService } from '../services/errorService.js';
 
 const cooldowns = new Map();
 const LOADING_EMOJI = '<a:loading:1498963770175783032>';
@@ -107,10 +108,31 @@ export default {
 
             // Auto-delete command message
             if (settings?.autoDelete) {
-                await message.delete().catch(() => {});
+                await message.delete().catch(async err => {
+                    await errorService.error(client, err, {
+                        guildId: message.guild.id,
+                        source: 'prefix-command',
+                        operation: 'delete-command-message',
+                        context: {
+                            command: command.name,
+                            channelId: message.channelId,
+                            messageId: message.id,
+                        },
+                    });
+                });
             }
         } catch (err) {
             logger.error(`Prefix command error [${command.name}]:`, err);
+            await errorService.error(client, err, {
+                guildId: message.guild.id,
+                source: 'prefix-command',
+                operation: command.name,
+                context: {
+                    command: command.name,
+                    channelId: message.channelId,
+                    userId: message.author.id,
+                },
+            });
             await message.reply('Something went wrong running that command.').catch(() => {});
         } finally {
             // Remove loading reaction (only the bot's own)

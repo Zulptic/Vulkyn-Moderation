@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
 import { canPunishTarget } from '../../../services/permissionService.js';
+import { errorService } from '../../../services/errorService.js';
 
 export default {
     name: 'softban',
@@ -47,6 +48,7 @@ export default {
         }).then(() => null).catch(err => err);
 
         if (banError) {
+            await errorService.commandError(client, banError, interaction, 'softban:ban', { targetId: target.id });
             return embedService.error(interaction, `Softban failed during ban step: ${banError.message}`);
         }
 
@@ -55,6 +57,7 @@ export default {
             .catch(err => err);
 
         if (unbanError) {
+            await errorService.commandError(client, unbanError, interaction, 'softban:unban', { targetId: target.id });
             return embedService.error(interaction, `Softban failed during unban step: ${unbanError.message}`);
         }
 

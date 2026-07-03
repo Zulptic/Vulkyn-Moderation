@@ -4,6 +4,7 @@ import { logModAction } from '../../../services/moderationService.js';
 import { getGuildConfig } from '../../../services/guildConfig.js';
 import { canPunishTarget } from '../../../services/permissionService.js';
 import { scheduleInfractionExpiry } from '../../../services/punishmentExpiry.js';
+import { errorService } from '../../../services/errorService.js';
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -46,10 +47,25 @@ export default {
 
         const config = await getGuildConfig(interaction.guild.id, client);
         const muteRoleId = config?.muteRoleId;
-        if (!muteRoleId) return embedService.error(interaction, 'Server Mute role is not configured.');
+        if (!muteRoleId) {
+            await errorService.commandWarning(client, interaction, {
+                code: 'MUTE_ROLE_NOT_CONFIGURED',
+                operation: 'multimute',
+                message: 'Server Mute role is not configured.',
+            });
+            return embedService.error(interaction, 'Server Mute role is not configured.');
+        }
 
         const muteRole = interaction.guild.roles.cache.get(muteRoleId);
-        if (!muteRole) return embedService.error(interaction, 'Server Mute role was deleted.');
+        if (!muteRole) {
+            await errorService.commandWarning(client, interaction, {
+                code: 'MUTE_ROLE_UNAVAILABLE',
+                operation: 'multimute',
+                message: `Configured Server Mute role ${muteRoleId} is unavailable.`,
+                context: { muteRoleId },
+            });
+            return embedService.error(interaction, 'Server Mute role was deleted.');
+        }
 
         const duration = durationStr ? parseDuration(durationStr) : null;
         if (durationStr && !duration) return embedService.error(interaction, 'Invalid duration format (e.g. `1h`, `7d`).');
@@ -71,7 +87,11 @@ export default {
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             const muteError = await member.roles.add(muteRole, reason).then(() => null).catch(err => err);
-            if (muteError) { failed.push({ id, reason: `Discord mute failed: ${muteError.message}` }); continue; }
+            if (muteError) {
+                await errorService.commandError(client, muteError, interaction, 'multimute:add-role', { targetId: id, muteRoleId });
+                failed.push({ id, reason: `Discord mute failed: ${muteError.message}` });
+                continue;
+            }
 
             const logResult = await logModAction(client, {
                 guildId: interaction.guild.id,
@@ -85,7 +105,9 @@ export default {
             const infraction = logResult?.infraction;
 
             if (!infraction) {
-                await member.roles.remove(muteRole, 'Mute logging failed; rolling back').catch(() => {});
+                await member.roles.remove(muteRole, 'Mute logging failed; rolling back').catch(err =>
+                    errorService.commandError(client, err, interaction, 'multimute:rollback-role', { targetId: id, muteRoleId })
+                );
                 failed.push({ id, reason: 'Infraction could not be recorded; mute was rolled back' });
                 continue;
             }

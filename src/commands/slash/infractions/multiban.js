@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
 import { canPunishTarget } from '../../../services/permissionService.js';
+import { errorService } from '../../../services/errorService.js';
 
 function extractIds(str) {
     return [...str.matchAll(/\d{17,20}/g)].map(m => m[0]);
@@ -48,7 +49,11 @@ export default {
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             const banError = await interaction.guild.members.ban(id, { reason }).then(() => null).catch(err => err);
-            if (banError) { failed.push({ id, reason: `Discord ban failed: ${banError.message}` }); continue; }
+            if (banError) {
+                await errorService.commandError(client, banError, interaction, 'multiban:ban', { targetId: id });
+                failed.push({ id, reason: `Discord ban failed: ${banError.message}` });
+                continue;
+            }
 
             const logResult = await logModAction(client, {
                 guildId: interaction.guild.id,
@@ -61,7 +66,9 @@ export default {
             const infraction = logResult?.infraction;
 
             if (!infraction) {
-                await interaction.guild.members.unban(id, 'Ban logging failed; rolling back').catch(() => {});
+                await interaction.guild.members.unban(id, 'Ban logging failed; rolling back').catch(err =>
+                    errorService.commandError(client, err, interaction, 'multiban:rollback-unban', { targetId: id })
+                );
                 failed.push({ id, reason: 'Infraction could not be recorded; ban was rolled back' });
                 continue;
             }

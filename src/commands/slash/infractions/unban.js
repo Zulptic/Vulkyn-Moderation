@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { embedService } from '../../../services/embedService.js';
+import { errorService } from '../../../services/errorService.js';
 import { logModAction } from '../../../services/moderationService.js';
 
 export default {
@@ -30,6 +31,7 @@ export default {
 
         const unbanError = await interaction.guild.members.unban(userId, reason).then(() => null).catch(err => err);
         if (unbanError) {
+            await errorService.commandError(client, unbanError, interaction, 'unban', { targetId: userId });
             return embedService.error(interaction, `Unban failed: ${unbanError.message}`);
         }
 

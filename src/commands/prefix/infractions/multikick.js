@@ -1,6 +1,7 @@
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
 import { canPunishTarget } from '../../../services/permissionService.js';
+import { errorService } from '../../../services/errorService.js';
 
 function extractIds(str) {
     return [...str.matchAll(/\d{17,20}/g)].map(m => m[0]);
@@ -46,7 +47,11 @@ export default {
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             const kickError = await member.kick(reason).then(() => null).catch(err => err);
-            if (kickError) { failed.push({ id, reason: `Discord kick failed: ${kickError.message}` }); continue; }
+            if (kickError) {
+                await errorService.commandError(client, kickError, message, 'multikick:kick', { targetId: id });
+                failed.push({ id, reason: `Discord kick failed: ${kickError.message}` });
+                continue;
+            }
 
             const logResult = await logModAction(client, {
                 guildId: message.guild.id,

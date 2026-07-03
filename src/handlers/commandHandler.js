@@ -4,6 +4,7 @@ import path from 'path';
 import { REST, Routes } from 'discord.js';
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
+import { errorService } from '../services/errorService.js';
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
@@ -64,6 +65,11 @@ export async function syncGuildCommands(guildId, client) {
         logger.info(`Synced ${body.length} slash command(s) for guild ${guildId}`);
     } catch (err) {
         logger.error(`Failed to sync slash commands for guild ${guildId}:`, err);
+        await errorService.error(client, err, {
+            guildId,
+            source: 'command-handler',
+            operation: 'sync-guild-commands',
+        });
     }
 }
 

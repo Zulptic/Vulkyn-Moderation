@@ -1,6 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { embedService } from "../../../services/embedService.js";
 import { getGuildConfig } from "../../../services/guildConfig.js";
+import { errorService } from "../../../services/errorService.js";
 import { logModAction } from "../../../services/moderationService.js";
 
 export default {
@@ -17,7 +18,21 @@ export default {
         const config = await getGuildConfig(interaction.guild.id, client);
         const muteRoleId = config?.muteRoleId;
         if (!muteRoleId) {
+            await errorService.commandWarning(client, interaction, {
+                code: 'MUTE_ROLE_NOT_CONFIGURED',
+                operation: 'unmute',
+                message: 'Server Mute role is not configured.',
+            });
             return embedService.error(interaction, 'Server Mute role is not configured.');
+        }
+        if (!interaction.guild.roles.cache.has(muteRoleId)) {
+            await errorService.commandWarning(client, interaction, {
+                code: 'MUTE_ROLE_UNAVAILABLE',
+                operation: 'unmute',
+                message: `Configured Server Mute role ${muteRoleId} is unavailable.`,
+                context: { muteRoleId },
+            });
+            return embedService.error(interaction, 'Server Mute role was deleted.');
         }
 
         if (!target) {
@@ -39,6 +54,7 @@ export default {
 
         const unmuteError = await target.roles.remove(muteRoleId, reason).then(() => null).catch(err => err);
         if (unmuteError) {
+            await errorService.commandError(client, unmuteError, interaction, 'unmute', { targetId: target.id, muteRoleId });
             return embedService.error(interaction, `Unmute failed: ${unmuteError.message}`);
         }
 

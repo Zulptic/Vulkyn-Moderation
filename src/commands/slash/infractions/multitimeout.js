@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { embedService } from '../../../services/embedService.js';
 import { logModAction } from '../../../services/moderationService.js';
 import { canPunishTarget } from '../../../services/permissionService.js';
+import { errorService } from '../../../services/errorService.js';
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
 
@@ -63,7 +64,11 @@ export default {
             if (punishErr) { failed.push({ id, reason: punishErr }); continue; }
 
             const timeoutError = await member.timeout(duration * 1000, reason).then(() => null).catch(err => err);
-            if (timeoutError) { failed.push({ id, reason: `Discord timeout failed: ${timeoutError.message}` }); continue; }
+            if (timeoutError) {
+                await errorService.commandError(client, timeoutError, interaction, 'multitimeout:timeout', { targetId: id });
+                failed.push({ id, reason: `Discord timeout failed: ${timeoutError.message}` });
+                continue;
+            }
 
             const logResult = await logModAction(client, {
                 guildId: interaction.guild.id,
@@ -77,7 +82,9 @@ export default {
             const infraction = logResult?.infraction;
 
             if (!infraction) {
-                await member.timeout(null, 'Timeout logging failed; rolling back').catch(() => {});
+                await member.timeout(null, 'Timeout logging failed; rolling back').catch(err =>
+                    errorService.commandError(client, err, interaction, 'multitimeout:rollback', { targetId: id })
+                );
                 failed.push({ id, reason: 'Infraction could not be recorded; timeout was rolled back' });
                 continue;
             }

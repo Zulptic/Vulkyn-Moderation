@@ -1,6 +1,7 @@
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { canPunishTarget } from "../../../services/permissionService.js";
+import { errorService } from "../../../services/errorService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d)$/;
 
@@ -61,6 +62,7 @@ export default {
 
         const timeoutError = await target.timeout(duration * 1000, reason).then(() => null).catch(err => err);
         if (timeoutError) {
+            await errorService.commandError(client, timeoutError, message, 'timeout', { targetId: target.id });
             return embedService.error(message, `Timeout failed: ${timeoutError.message}`);
         }
 
@@ -76,7 +78,9 @@ export default {
         const infraction = logResult?.infraction;
 
         if (!infraction) {
-            await target.timeout(null, 'Timeout logging failed; rolling back').catch(() => {});
+            await target.timeout(null, 'Timeout logging failed; rolling back').catch(err =>
+                errorService.commandError(client, err, message, 'timeout:rollback', { targetId: target.id })
+            );
             return embedService.error(message, 'Timeout failed because the infraction could not be recorded. The timeout was removed.');
         }
 

@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import { getGuildConfig } from './guildConfig.js';
 import { logger } from '../utils/logger.js';
+import { errorService } from './errorService.js';
 
 const EMOJI = {
     logging: '<:logging_1:1503523050266558464><:logging_2:1503523067106820117><:logging_3:1503523080851554414>',
@@ -151,7 +152,17 @@ async function sendToLog(client, guildId, category, event, container, context = 
         if (!channelId) return;
 
         const channel = client.channels.cache.get(channelId);
-        if (!channel) return;
+        if (!channel) {
+            await errorService.warning(client, {
+                guildId,
+                code: 'LOG_CHANNEL_UNAVAILABLE',
+                source: 'logging-service',
+                operation: `${category}:${event}`,
+                message: `Configured logging channel ${channelId} is unavailable.`,
+                context: { category, event, channelId },
+            });
+            return;
+        }
 
         await channel.send({
             components: [container],
@@ -159,6 +170,12 @@ async function sendToLog(client, guildId, category, event, container, context = 
         });
     } catch (err) {
         logger.error(`loggingService.sendToLog failed [${category}/${event}]:`, err);
+        await errorService.error(client, err, {
+            guildId,
+            source: 'logging-service',
+            operation: `${category}:${event}`,
+            context: { category, event },
+        });
     }
 }
 

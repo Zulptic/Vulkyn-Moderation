@@ -1,4 +1,5 @@
 import { embedService } from '../../../services/embedService.js';
+import { errorService } from '../../../services/errorService.js';
 import { logModAction } from '../../../services/moderationService.js';
 
 export default {
@@ -28,6 +29,7 @@ export default {
 
         const untimeoutError = await target.timeout(null, reason).then(() => null).catch(err => err);
         if (untimeoutError) {
+            await errorService.commandError(client, untimeoutError, message, 'untimeout', { targetId: target.id });
             return embedService.error(message, `Untimeout failed: ${untimeoutError.message}`);
         }
 

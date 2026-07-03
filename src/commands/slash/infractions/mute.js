@@ -4,6 +4,7 @@ import { embedService } from "../../../services/embedService.js";
 import { getGuildConfig } from "../../../services/guildConfig.js";
 import { canPunishTarget } from "../../../services/permissionService.js";
 import { scheduleInfractionExpiry } from "../../../services/punishmentExpiry.js";
+import { errorService } from "../../../services/errorService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -34,11 +35,22 @@ export default {
         const config = await getGuildConfig(interaction.guild.id, client);
         const muteRoleId = config?.muteRoleId;
         if (!muteRoleId) {
+            await errorService.commandWarning(client, interaction, {
+                code: 'MUTE_ROLE_NOT_CONFIGURED',
+                operation: 'mute',
+                message: 'Server Mute role is not configured.',
+            });
             return embedService.error(interaction, 'Server Mute role is not configured. Please re-invite the bot or set it up in the web panel.');
         }
 
         const muteRole = interaction.guild.roles.cache.get(muteRoleId);
         if (!muteRole) {
+            await errorService.commandWarning(client, interaction, {
+                code: 'MUTE_ROLE_UNAVAILABLE',
+                operation: 'mute',
+                message: `Configured Server Mute role ${muteRoleId} is unavailable.`,
+                context: { muteRoleId },
+            });
             return embedService.error(interaction, 'Server Mute role was deleted. Please re-invite the bot or set it up in the web panel.');
         }
 
@@ -73,6 +85,7 @@ export default {
 
         const muteError = await target.roles.add(muteRole, reason).then(() => null).catch(err => err);
         if (muteError) {
+            await errorService.commandError(client, muteError, interaction, 'mute:add-role', { targetId: target.id, muteRoleId });
             return embedService.error(interaction, `Mute failed: ${muteError.message}`);
         }
 
@@ -88,7 +101,9 @@ export default {
         const infraction = logResult?.infraction;
 
         if (!infraction) {
-            await target.roles.remove(muteRole, 'Mute logging failed; rolling back').catch(() => {});
+            await target.roles.remove(muteRole, 'Mute logging failed; rolling back').catch(err =>
+                errorService.commandError(client, err, interaction, 'mute:rollback-role', { targetId: target.id, muteRoleId })
+            );
             return embedService.error(interaction, 'Mute failed because the infraction could not be recorded. The mute role was removed.');
         }
 

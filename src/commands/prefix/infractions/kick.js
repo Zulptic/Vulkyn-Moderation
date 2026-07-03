@@ -1,6 +1,7 @@
 import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { canPunishTarget } from "../../../services/permissionService.js";
+import { errorService } from "../../../services/errorService.js";
 
 export default {
     name: 'kick',
@@ -27,6 +28,7 @@ export default {
 
         const kickError = await target.kick(reason).then(() => null).catch(err => err);
         if (kickError) {
+            await errorService.commandError(client, kickError, message, 'kick', { targetId: target.id });
             return embedService.error(message, `Kick failed: ${kickError.message}`);
         }
 

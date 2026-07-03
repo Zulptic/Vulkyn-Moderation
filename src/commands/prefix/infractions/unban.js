@@ -1,4 +1,5 @@
 import { embedService } from '../../../services/embedService.js';
+import { errorService } from '../../../services/errorService.js';
 import { logModAction } from '../../../services/moderationService.js';
 
 export default {
@@ -25,6 +26,7 @@ export default {
 
         const unbanError = await message.guild.members.unban(userId, reason).then(() => null).catch(err => err);
         if (unbanError) {
+            await errorService.commandError(client, unbanError, message, 'unban', { targetId: userId });
             return embedService.error(message, `Unban failed: ${unbanError.message}`);
         }
 

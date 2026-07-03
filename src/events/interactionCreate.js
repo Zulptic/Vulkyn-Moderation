@@ -2,6 +2,7 @@ import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
 import { canUseCommand } from '../services/permissionService.js';
 import { embedService } from '../services/embedService.js';
+import { errorService } from '../services/errorService.js';
 
 const cooldowns = new Map();
 
@@ -64,6 +65,16 @@ export default {
             await command.execute(interaction, client);
         } catch (err) {
             logger.error(`Slash command error [${interaction.commandName}]:`, err);
+            await errorService.error(client, err, {
+                guildId: interaction.guildId,
+                source: 'slash-command',
+                operation: interaction.commandName,
+                context: {
+                    command: interaction.commandName,
+                    channelId: interaction.channelId,
+                    userId: interaction.user.id,
+                },
+            });
 
             const reply = { content: 'Something went wrong running that command.', ephemeral: true };
             if (interaction.replied || interaction.deferred) {

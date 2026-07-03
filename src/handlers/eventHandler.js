@@ -2,6 +2,33 @@ import { readdir } from 'fs/promises';
 import { pathToFileURL } from 'url';
 import path from 'path';
 import { logger } from '../utils/logger.js';
+import { errorService } from '../services/errorService.js';
+
+function getEventGuildId(args) {
+    for (const arg of args) {
+        if (arg?.guildId) return arg.guildId;
+        if (arg?.guild?.id) return arg.guild.id;
+        if (arg?.channels?.cache && arg?.members?.cache && arg?.id) return arg.id;
+    }
+    return null;
+}
+
+async function executeEvent(event, args, client) {
+    try {
+        await event.execute(...args, client);
+    } catch (err) {
+        const guildId = getEventGuildId(args);
+        logger.error(`Event error [${event.name}]:`, err);
+
+        if (guildId) {
+            await errorService.error(client, err, {
+                guildId,
+                source: 'discord-event',
+                operation: event.name,
+            });
+        }
+    }
+}
 
 async function loadFromDir(dirPath, client) {
     const entries = await readdir(dirPath, { withFileTypes: true });
@@ -24,9 +51,9 @@ async function loadFromDir(dirPath, client) {
         }
 
         if (event.once) {
-            client.once(event.name, (...args) => event.execute(...args, client));
+            client.once(event.name, (...args) => executeEvent(event, args, client));
         } else {
-            client.on(event.name, (...args) => event.execute(...args, client));
+            client.on(event.name, (...args) => executeEvent(event, args, client));
         }
 
         logger.info(`Loaded event: ${event.name}`);

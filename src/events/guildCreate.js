@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
+import { errorService } from '../services/errorService.js';
 
 const DEFAULT_CONFIG = {
     general: {
@@ -171,17 +172,36 @@ export default {
                 logger.info(`Created Server Mute role (${muteRole.id}) in ${guild.name}`);
 
                 const channels = guild.channels.cache.filter(ch => ch.isTextBased() || ch.isVoiceBased());
+                const overwriteFailures = [];
                 for (const [, channel] of channels) {
                     await channel.permissionOverwrites.create(muteRole, {
                         SendMessages: false,
                         AddReactions: false,
                         Speak: false,
                         Connect: false,
-                    }).catch(() => {});
+                    }).catch(err => overwriteFailures.push({
+                        channelId: channel.id,
+                        code: err.code ?? null,
+                        message: err.message,
+                    }));
                     await new Promise(resolve => setTimeout(resolve, 750));
                 }
 
                 logger.info(`Applied mute overrides to ${channels.size} channels in ${guild.name}`);
+
+                if (overwriteFailures.length) {
+                    await errorService.warning(client, {
+                        guildId: guild.id,
+                        code: 'MUTE_CHANNEL_OVERWRITE_PARTIAL_FAILURE',
+                        source: 'guild-create-event',
+                        operation: 'apply-mute-overwrites',
+                        message: `Failed to apply mute-role overwrites to ${overwriteFailures.length} channel(s).`,
+                        context: {
+                            muteRoleId: muteRole.id,
+                            failures: overwriteFailures,
+                        },
+                    });
+                }
 
                 const config = { ...existingConfig, muteRoleId: muteRole.id };
                 await client.db.query(
@@ -195,6 +215,11 @@ export default {
             await client.syncGuildCommands(guild.id, client);
         } catch (err) {
             logger.error(`Failed to setup guild ${guild.id}:`, err);
+            await errorService.error(client, err, {
+                guildId: guild.id,
+                source: 'guild-create-event',
+                operation: 'setup-guild',
+            });
         }
     },
 };

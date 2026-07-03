@@ -3,6 +3,7 @@ import { logModAction } from "../../../services/moderationService.js";
 import { embedService } from "../../../services/embedService.js";
 import { canPunishTarget } from "../../../services/permissionService.js";
 import { scheduleInfractionExpiry } from "../../../services/punishmentExpiry.js";
+import { errorService } from "../../../services/errorService.js";
 
 const DURATION_REGEX = /^(\d+)(s|m|h|d|w)$/;
 
@@ -87,6 +88,7 @@ export default {
         }).then(() => null).catch(err => err);
 
         if (banError) {
+            await errorService.commandError(client, banError, interaction, 'ban', { targetId: target.id });
             return embedService.error(interaction, `Ban failed: ${banError.message}`);
         }
 
@@ -105,7 +107,9 @@ export default {
         const infraction = logResult?.infraction;
 
         if (!infraction) {
-            await interaction.guild.members.unban(target.id, 'Ban logging failed; rolling back').catch(() => {});
+            await interaction.guild.members.unban(target.id, 'Ban logging failed; rolling back').catch(err =>
+                errorService.commandError(client, err, interaction, 'ban:rollback-unban', { targetId: target.id })
+            );
             return embedService.error(interaction, 'Ban failed because the infraction could not be recorded. The user was unbanned.');
         }
 

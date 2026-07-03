@@ -1,5 +1,6 @@
 import { getGuildConfig } from './guildConfig.js';
 import { logModAction } from './moderationService.js';
+import { errorService } from './errorService.js';
 
 const SCHEDULER_INTERVAL_MS = 60_000;
 const SCHEDULE_WINDOW_MS = 60 * 60 * 1000;
@@ -165,11 +166,47 @@ export async function expireInfraction(client, infractionId) {
         const errorMessage = formatExpiryError(err);
         console.warn(`[punishmentExpiry] Expiry failed for infraction ${infraction.id}: ${errorMessage}`);
         await markInfractionFailed(client, infraction.id, errorMessage);
+
+        if (['No mute role configured', 'Configured mute role is unavailable'].includes(errorMessage)) {
+            await errorService.warning(client, {
+                guildId: infraction.guild_id,
+                code: errorMessage === 'No mute role configured'
+                    ? 'MUTE_ROLE_NOT_CONFIGURED'
+                    : 'MUTE_ROLE_UNAVAILABLE',
+                source: 'punishment-expiry',
+                operation: `expire-${infraction.type}`,
+                message: errorMessage,
+                context: {
+                    infractionId: infraction.id,
+                    userId: infraction.user_id,
+                },
+            });
+        } else {
+            await errorService.error(client, err, {
+                guildId: infraction.guild_id,
+                source: 'punishment-expiry',
+                operation: `expire-${infraction.type}`,
+                context: {
+                    infractionId: infraction.id,
+                    userId: infraction.user_id,
+                },
+            });
+        }
         return;
     }
 
-    await logExpiryModAction(client, infraction).catch(err => {
+    await logExpiryModAction(client, infraction).catch(async err => {
         console.warn(`[punishmentExpiry] Failed to log expiry action for infraction ${infraction.id}:`, err);
+        await errorService.error(client, err, {
+            guildId: infraction.guild_id,
+            source: 'punishment-expiry',
+            operation: 'log-expiry-action',
+            context: {
+                infractionId: infraction.id,
+                userId: infraction.user_id,
+                type: infraction.type,
+            },
+        });
     });
 
     console.log(`[punishmentExpiry] ${infraction.type} expiry completed for ${infraction.user_id} in ${guild.name}`);
@@ -247,6 +284,9 @@ async function expireMute(client, guild, infraction) {
 
     if (!muteRoleId) {
         throw new Error('No mute role configured');
+    }
+    if (!guild.roles.cache.has(muteRoleId)) {
+        throw new Error('Configured mute role is unavailable');
     }
 
     const member = await guild.members.fetch(infraction.user_id).catch(err => {

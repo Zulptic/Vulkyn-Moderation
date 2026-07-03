@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { getGuildConfig } from '../services/guildConfig.js';
+import { errorService } from '../services/errorService.js';
 
 export default {
     name: 'channelCreate',
@@ -24,6 +25,19 @@ export default {
             logger.info(`Applied mute overrides to new channel #${channel.name} in ${channel.guild.name}`);
         } catch (err) {
             logger.warn(`Could not apply mute overrides to #${channel.name}:`, err);
+            await errorService.warning(client, {
+                guildId: channel.guild.id,
+                code: 'MUTE_CHANNEL_OVERWRITE_FAILED',
+                source: 'channel-create-event',
+                operation: 'apply-mute-overwrite',
+                message: `Could not apply mute-role overwrites to channel ${channel.id}: ${err.message}`,
+                stackTrace: err.stack,
+                context: {
+                    channelId: channel.id,
+                    muteRoleId,
+                    discordCode: err.code,
+                },
+            });
         }
     },
 };

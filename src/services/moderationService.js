@@ -11,6 +11,7 @@ import { logger } from '../utils/logger.js';
 import { getGuildConfig } from './guildConfig.js';
 import { addScore } from './accountStatusService.js';
 import { shouldIgnoreLog } from './loggingService.js';
+import { errorService } from './errorService.js';
 
 const PUNISHMENT_TYPES = ['warn', 'mute', 'timeout', 'kick', 'ban', 'softban'];
 const FAILED_LOG_RESULT = { infraction: null, modAction: null };
@@ -53,9 +54,15 @@ export async function logModAction(client, {
             });
 
             if (!options.skipAccountStatus && targetId) {
-                await addScore(client, guildId, targetId, action).catch(err =>
-                    logger.warn('Account status update failed:', err)
-                );
+                await addScore(client, guildId, targetId, action).catch(async err => {
+                    logger.warn('Account status update failed:', err);
+                    await errorService.error(client, err, {
+                        guildId,
+                        source: 'moderation-service',
+                        operation: 'update-account-status',
+                        context: { action, targetId, moderatorId },
+                    });
+                });
             }
         }
 
@@ -81,12 +88,24 @@ export async function logModAction(client, {
             metadata,
         }).catch(err => {
             logger.warn('Failed to post moderation log message:', err);
+            return errorService.error(client, err, {
+                guildId,
+                source: 'moderation-service',
+                operation: 'send-moderation-log',
+                context: { action, targetId, moderatorId },
+            });
         });
 
         return { infraction, modAction };
 
     } catch (err) {
         logger.error('Failed to log mod action:', err);
+        await errorService.error(client, err, {
+            guildId,
+            source: 'moderation-service',
+            operation: 'log-moderation-action',
+            context: { action, targetId, moderatorId },
+        });
         return { ...FAILED_LOG_RESULT };
     }
 }
@@ -179,6 +198,17 @@ export async function logModerationAction(client, data) {
         return rows[0];
     } catch (err) {
         logger.error('Failed to log moderation action:', err);
+        await errorService.error(client, err, {
+            guildId: data.guildId,
+            source: 'moderation-service',
+            operation: 'insert-moderation-action',
+            context: {
+                action: data.action,
+                targetId: data.targetId,
+                moderatorId: data.moderatorId,
+                infractionId: data.infractionId,
+            },
+        });
         return null;
     }
 }
@@ -345,10 +375,22 @@ async function dmUser(client, guildId, userId, infraction) {
                 new TextDisplayBuilder().setContent(footerText)
             );
 
-        await user.send({
-            components: [container],
-            flags: MessageFlags.IsComponentsV2,
-        }).catch(() => {});
+        try {
+            await user.send({
+                components: [container],
+                flags: MessageFlags.IsComponentsV2,
+            });
+        } catch (err) {
+            // Discord code 50007 means the user has DMs closed; this is expected.
+            if (Number(err?.code) !== 50007) {
+                await errorService.error(client, err, {
+                    guildId,
+                    source: 'moderation-service',
+                    operation: 'send-punishment-dm',
+                    context: { userId, infractionId: infraction.id },
+                });
+            }
+        }
     } catch (err) {
         logger.warn(`Could not DM user ${userId}:`, err);
     }

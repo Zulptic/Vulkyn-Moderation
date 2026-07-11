@@ -1,5 +1,4 @@
 import { randomInt } from 'crypto';
-import { getGuildConfig } from './guildConfig.js';
 import { logger } from '../utils/logger.js';
 
 const ID_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -83,11 +82,6 @@ function getShardId(client) {
     return Number.isInteger(parsed) ? parsed : 0;
 }
 
-async function isEnabled(client, guildId) {
-    const config = await getGuildConfig(guildId, client);
-    return config?.general?.errorLogging?.enabled === true;
-}
-
 async function insertError(client, entry) {
     for (let attempt = 1; attempt <= MAX_ID_ATTEMPTS; attempt++) {
         const id = createReferenceId();
@@ -135,10 +129,6 @@ async function record(client, severity, details = {}) {
     }
 
     try {
-        if (!await isEnabled(client, guildId)) {
-            return { recorded: false, id: null, reason: 'disabled' };
-        }
-
         return await insertError(client, {
             guildId,
             severity,

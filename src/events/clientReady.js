@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { startPunishmentExpiryScheduler } from '../services/punishmentExpiry.js';
 import { startAccountStatusRefresh } from '../services/accountStatusService.js';
+import { startMessageLogStore } from '../services/messageLogStore.js';
 
 export default {
     name: 'clientReady',
@@ -14,5 +15,6 @@ export default {
 
         startPunishmentExpiryScheduler(client);
         startAccountStatusRefresh(client);
+        await startMessageLogStore(client);
     },
 };

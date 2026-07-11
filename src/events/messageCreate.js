@@ -3,6 +3,7 @@ import { getGuildConfig } from '../services/guildConfig.js';
 import { canUseCommand } from '../services/permissionService.js';
 import { embedService } from '../services/embedService.js';
 import { loggingService } from '../services/loggingService.js';
+import { recordMessage, isMessageDeleteLoggingEnabled } from '../services/messageLogStore.js';
 import { errorService } from '../services/errorService.js';
 
 const cooldowns = new Map();
@@ -20,6 +21,10 @@ export default {
 
         const config = await getGuildConfig(message.guild.id, client);
         const cmdConfig = config?.commands || {};
+
+        if (isMessageDeleteLoggingEnabled(config)) {
+            recordMessage(message);
+        }
 
         // Check ignored channels
         if (cmdConfig.ignoredChannels?.includes(message.channel.id)) {

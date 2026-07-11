@@ -2,14 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { errorService } from '../src/services/errorService.js';
 
-function createClient({ enabled = true, query } = {}) {
+function createClient({ query } = {}) {
     return {
         shard: { ids: [3] },
-        redis: {
-            get: async () => JSON.stringify({
-                general: { errorLogging: { enabled } },
-            }),
-        },
         db: {
             query: query ?? (async (_sql, params) => ({
                 rows: [{ id: params[0] }],
@@ -74,28 +69,28 @@ test('error captures the original error details and safe Discord metadata', asyn
     });
 });
 
-test('disabled guild error logging does not write to the database', async () => {
+test('error logging records without consulting guild configuration', async () => {
     let queryCalls = 0;
     const client = createClient({
-        enabled: false,
-        query: async () => {
+        query: async (_sql, params) => {
             queryCalls++;
-            return { rows: [] };
+            return { rows: [{ id: params[0] }] };
         },
     });
+    client.redis = {
+        get: async () => {
+            throw new Error('Guild configuration should not be read');
+        },
+    };
 
     const result = await errorService.warning(client, {
         guildId: '123456789012345678',
         source: 'command',
-        message: 'This should not be recorded.',
+        message: 'This should always be recorded.',
     });
 
-    assert.deepEqual(result, {
-        recorded: false,
-        id: null,
-        reason: 'disabled',
-    });
-    assert.equal(queryCalls, 0);
+    assert.equal(result.recorded, true);
+    assert.equal(queryCalls, 1);
 });
 
 test('context is redacted and made JSON-safe before insertion', async () => {

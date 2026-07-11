@@ -8,7 +8,6 @@ const DEFAULT_CONFIG = {
         language: 'en',
         timezone: 'UTC',
         deleteConfigOnLeave: false,
-        errorLogging: { enabled: false },
     },
 
     permissions: {

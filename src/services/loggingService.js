@@ -12,6 +12,7 @@ import {
     GuildScheduledEventEntityType,
 } from 'discord.js';
 import { getGuildConfig } from './guildConfig.js';
+import { lookupMessage } from './messageLogStore.js';
 import { logger } from '../utils/logger.js';
 import { errorService } from './errorService.js';
 
@@ -2003,15 +2004,31 @@ async function sendMessageDelete(message, client) {
     const entry = await fetchAuditEntry(client, guildId, AuditLogEvent.MessageDelete);
     const executor = entry?.executor ?? null;
 
-    const author = message.partial ? null : message.author;
-    const content = message.partial ? null : (message.content || null);
+    let authorId = message.partial ? null : message.author?.id ?? null;
+    let authorName = message.partial ? null : message.author?.username ?? null;
+    let content = message.partial ? null : (message.content || null);
+    let attachments = null;
+
+    // Recover from our own store when discord.js only gave us a partial (the
+    // message was never in the gateway cache, e.g. posted-then-deleted quickly
+    // or from before the bot last restarted).
+    if (!content) {
+        const stored = await lookupMessage(message.id, client);
+        if (stored) {
+            authorId = authorId ?? stored.user_id;
+            authorName = authorName ?? stored.username;
+            content = content ?? stored.content;
+            attachments = stored.attachments;
+        }
+    }
 
     const detailLines = [
-        author ? `**Author:** ${author.username} — <@${author.id}>` : `**Author:** *Unknown*`,
+        authorId ? `**Author:** ${authorName ?? 'Unknown'} — <@${authorId}>` : `**Author:** *Unknown*`,
         `**Channel:** <#${message.channelId}>`,
         content ? `**Content:** ${truncate(content)}` : `**Content:** *Not cached*`,
+        attachments ? `**Attachments:** ${attachments}` : null,
         `**Message ID:** \`${message.id}\``,
-    ];
+    ].filter(Boolean);
 
     const container = new ContainerBuilder()
         .setAccentColor(0xe24b4a)
@@ -2023,7 +2040,7 @@ async function sendMessageDelete(message, client) {
 
     await sendToLog(client, guildId, 'messages', 'messageDelete', container, {
         channelIds: [message.channelId],
-        userIds: [author?.id, executor?.id],
+        userIds: [authorId, executor?.id],
         roleIds: message.member ? [...message.member.roles.cache.keys()] : [],
     });
 }
